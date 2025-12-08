@@ -225,9 +225,20 @@ class SmoothcompAgent(BaseTournamentAgent):
     def _parse_event_element(self, element) -> Optional[Tournament]:
         """Parse a BeautifulSoup element into a Tournament object."""
         try:
-            # Extract event name
-            name_elem = element.select_one('h2, h3, h4, .event-name, .event-title, [class*="title"]')
-            name = name_elem.get_text(strip=True) if name_elem else None
+            # Extract event name - try multiple selectors
+            name = None
+            name_selectors = [
+                'h2', 'h3', 'h4',
+                '.event-name', '.event-title',
+                '[class*="title"]',
+                '[class*="name"]',
+            ]
+            for selector in name_selectors:
+                name_elem = element.select_one(selector)
+                if name_elem:
+                    name = name_elem.get_text(strip=True)
+                    if name:
+                        break
 
             if not name:
                 link = element.select_one('a[href*="/event/"]')
@@ -237,29 +248,74 @@ class SmoothcompAgent(BaseTournamentAgent):
             if not name:
                 return None
 
-            # Extract date
-            date_elem = element.select_one('[class*="date"], time, .event-date')
-            date_str = date_elem.get_text(strip=True) if date_elem else None
-            date = self._parse_date(date_str) if date_str else "TBD"
+            # Extract location - look for text with country pattern (City, Country)
+            location = "TBD"
+            location_selectors = [
+                '[class*="location"]',
+                '[class*="venue"]',
+                '[class*="place"]',
+                '[class*="city"]',
+            ]
+            for selector in location_selectors:
+                loc_elem = element.select_one(selector)
+                if loc_elem:
+                    location = loc_elem.get_text(strip=True)
+                    if location and ',' in location:
+                        break
 
-            # Extract location
-            location_elem = element.select_one('[class*="location"], [class*="venue"], .event-location')
-            location = location_elem.get_text(strip=True) if location_elem else "TBD"
+            # If still no location, look for any text containing comma (City, Country pattern)
+            if location == "TBD" or ',' not in location:
+                all_text = element.get_text(separator='|', strip=True)
+                # Look for patterns like "City, Country"
+                import re
+                loc_match = re.search(r'([A-Za-z\s]+,\s*[A-Za-z\s]+)', all_text)
+                if loc_match:
+                    potential_loc = loc_match.group(1).strip()
+                    # Avoid matching dates or other patterns
+                    if not any(month in potential_loc.lower() for month in ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']):
+                        location = potential_loc
+
+            # Extract date - look for date patterns
+            date_str = None
+            date_selectors = [
+                '[class*="date"]',
+                'time',
+                '[class*="when"]',
+            ]
+            for selector in date_selectors:
+                date_elem = element.select_one(selector)
+                if date_elem:
+                    date_str = date_elem.get_text(strip=True)
+                    if date_str:
+                        break
+
+            # If no date found, search in text for date pattern
+            if not date_str:
+                all_text = element.get_text(strip=True)
+                # Look for "2026 January 10" or similar patterns
+                import re
+                date_match = re.search(r'(\d{4}\s+[A-Za-z]+\s+\d{1,2})', all_text)
+                if date_match:
+                    date_str = date_match.group(1)
+
+            date = self._parse_date(date_str) if date_str else "TBD"
 
             # Extract registration link
             link_elem = element.select_one('a[href*="/event/"]')
-            registration_link = self.base_url + link_elem['href'] if link_elem and link_elem.get('href') else self.events_url
-
-            # Extract organizer
-            org_elem = element.select_one('[class*="organizer"], [class*="host"]')
-            organizer = org_elem.get_text(strip=True) if org_elem else None
-
-            # Extract description
-            desc_elem = element.select_one('[class*="description"], [class*="summary"], p')
-            description = desc_elem.get_text(strip=True)[:200] if desc_elem else None
+            if link_elem and link_elem.get('href'):
+                href = link_elem['href']
+                if href.startswith('/'):
+                    registration_link = self.base_url + href
+                else:
+                    registration_link = href
+            else:
+                registration_link = self.events_url
 
             # Parse location components
             city, state, country = self._parse_location(location)
+
+            # Debug output for first few events
+            print(f"[Smoothcomp] Parsed: name='{name[:30] if name else None}...', location='{location}', date='{date}', country='{country}'")
 
             return Tournament(
                 id=self._generate_id(name, date),
@@ -269,16 +325,18 @@ class SmoothcompAgent(BaseTournamentAgent):
                 city=city,
                 state=state,
                 country=country,
-                description=description,
-                organizer=organizer,
-                fees=None,  # Usually requires clicking into the event
+                description=None,
+                organizer=None,
+                fees=None,
                 registration_link=registration_link,
                 source=self.source,
                 sport="BJJ",
             )
 
         except Exception as e:
-            print(f"Error parsing event element: {e}")
+            print(f"[Smoothcomp] Error parsing event element: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
     def _parse_date(self, date_str: str) -> str:
@@ -289,6 +347,8 @@ class SmoothcompAgent(BaseTournamentAgent):
         # Try various date formats
         formats = [
             "%Y-%m-%d",
+            "%Y %B %d",      # 2026 January 10
+            "%Y %b %d",      # 2026 Jan 10
             "%d/%m/%Y",
             "%m/%d/%Y",
             "%B %d, %Y",
