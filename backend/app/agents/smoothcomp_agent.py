@@ -37,6 +37,11 @@ class SmoothcompAgent(BaseTournamentAgent):
     def password_env_var(self) -> str:
         return "SMOOTHCOMP_PASSWORD"
 
+    @property
+    def requires_login(self) -> bool:
+        """Smoothcomp events page is public, no login needed."""
+        return False
+
     async def _check_logged_in(self, page: Page) -> bool:
         """Check if already logged in to Smoothcomp."""
         try:

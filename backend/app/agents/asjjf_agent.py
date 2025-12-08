@@ -36,6 +36,11 @@ class ASJJFAgent(BaseTournamentAgent):
     def password_env_var(self) -> str:
         return "ASJJF_PASSWORD"
 
+    @property
+    def requires_login(self) -> bool:
+        """ASJJF events page is public, no login needed."""
+        return False
+
     async def _check_logged_in(self, page: Page) -> bool:
         """Check if already logged in to ASJJF."""
         try:
