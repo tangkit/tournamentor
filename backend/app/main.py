@@ -98,6 +98,7 @@ async def chat(request: ChatRequest):
             tournaments = await tournament_service.search_tournaments(
                 sources=search_params.get("sources") or None,
                 location=search_params.get("location"),
+                countries=search_params.get("countries") or None,
                 date_from=search_params.get("date_from"),
                 date_to=search_params.get("date_to"),
             )
@@ -128,6 +129,7 @@ async def search_tournaments(request: SearchRequest):
     - **query**: Optional text search query
     - **sources**: List of sources to search (empty = all)
     - **location**: Location filter (city, state, or country)
+    - **countries**: List of countries to filter by
     - **date_from**: Start date filter (YYYY-MM-DD)
     - **date_to**: End date filter (YYYY-MM-DD)
     """
@@ -135,12 +137,15 @@ async def search_tournaments(request: SearchRequest):
         tournaments = await tournament_service.search_tournaments(
             sources=request.sources if request.sources else None,
             location=request.location,
+            countries=request.countries if request.countries else None,
             date_from=request.date_from,
             date_to=request.date_to,
         )
 
         message = f"Found {len(tournaments)} tournaments"
-        if request.location:
+        if request.countries:
+            message += f" in {', '.join(request.countries)}"
+        elif request.location:
             message += f" in {request.location}"
         if request.sources:
             sources_str = ", ".join(s.value for s in request.sources)

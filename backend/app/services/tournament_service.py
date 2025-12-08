@@ -26,6 +26,7 @@ class TournamentService:
         self,
         sources: List[TournamentSource] = None,
         location: Optional[str] = None,
+        countries: Optional[List[str]] = None,
         date_from: Optional[str] = None,
         date_to: Optional[str] = None,
     ) -> List[Tournament]:
@@ -35,6 +36,7 @@ class TournamentService:
         Args:
             sources: List of sources to search (None = all sources)
             location: Location filter (city, state, or country)
+            countries: List of countries to filter by
             date_from: Start date filter (YYYY-MM-DD)
             date_to: End date filter (YYYY-MM-DD)
 
@@ -65,6 +67,7 @@ class TournamentService:
         filtered = self._apply_filters(
             all_tournaments,
             location=location,
+            countries=countries,
             date_from=date_from,
             date_to=date_to
         )
@@ -78,12 +81,22 @@ class TournamentService:
         self,
         tournaments: List[Tournament],
         location: Optional[str] = None,
+        countries: Optional[List[str]] = None,
         date_from: Optional[str] = None,
         date_to: Optional[str] = None,
     ) -> List[Tournament]:
-        """Apply location and date filters to tournament list."""
+        """Apply location, country, and date filters to tournament list."""
         filtered = tournaments
 
+        # Filter by countries if specified
+        if countries:
+            countries_lower = [c.lower() for c in countries]
+            filtered = [
+                t for t in filtered
+                if self._matches_country(t, countries_lower)
+            ]
+
+        # Filter by location if specified (more specific than country)
         if location:
             location_lower = location.lower()
             filtered = [
@@ -107,6 +120,24 @@ class TournamentService:
             ]
 
         return filtered
+
+    def _matches_country(self, tournament: Tournament, countries_lower: List[str]) -> bool:
+        """Check if tournament matches any of the specified countries."""
+        # Check tournament country field
+        if tournament.country:
+            tournament_country = tournament.country.lower()
+            for country in countries_lower:
+                if country in tournament_country or tournament_country in country:
+                    return True
+
+        # Check location string for country matches
+        if tournament.location:
+            location_lower = tournament.location.lower()
+            for country in countries_lower:
+                if country in location_lower:
+                    return True
+
+        return False
 
     async def get_all_tournaments(self) -> List[Tournament]:
         """Get all tournaments from all sources."""

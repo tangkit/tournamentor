@@ -51,6 +51,7 @@ class SearchRequest(BaseModel):
     query: Optional[str] = None
     sources: List[TournamentSource] = []
     location: Optional[str] = None
+    countries: List[str] = []
     date_from: Optional[str] = None
     date_to: Optional[str] = None
 
