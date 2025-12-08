@@ -152,16 +152,21 @@ class SmoothcompAgent(BaseTournamentAgent):
         tournaments = []
 
         try:
+            print(f"[Smoothcomp] Navigating to {self.events_url}")
             await page.goto(self.events_url, wait_until='domcontentloaded')
             await page.wait_for_timeout(3000)
+            print(f"[Smoothcomp] Page loaded, current URL: {page.url}")
 
             # Scroll to load more events
-            for _ in range(3):
+            print("[Smoothcomp] Scrolling to load more events...")
+            for i in range(3):
                 await page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
                 await page.wait_for_timeout(1500)
+                print(f"[Smoothcomp] Scroll {i+1}/3 complete")
 
             # Get page content
             content = await page.content()
+            print(f"[Smoothcomp] Got page content, length: {len(content)} chars")
             soup = BeautifulSoup(content, 'lxml')
 
             # Find event cards/listings
@@ -177,16 +182,21 @@ class SmoothcompAgent(BaseTournamentAgent):
             for selector in event_selectors:
                 events = soup.select(selector)
                 if events:
+                    print(f"[Smoothcomp] Found {len(events)} events with selector: {selector}")
                     break
 
             # If no specific event containers found, look for links to events
             if not events:
+                print("[Smoothcomp] No event containers found, looking for event links...")
                 event_links = soup.select('a[href*="/en/event/"]')
+                print(f"[Smoothcomp] Found {len(event_links)} event links")
                 for link in event_links:
                     parent = link.find_parent(['div', 'article', 'li'])
                     if parent and parent not in events:
                         events.append(parent)
+                print(f"[Smoothcomp] Found {len(events)} parent containers")
 
+            print(f"[Smoothcomp] Processing {min(len(events), 50)} events...")
             for event in events[:50]:  # Limit to 50 events
                 try:
                     tournament = self._parse_event_element(event)
@@ -200,11 +210,15 @@ class SmoothcompAgent(BaseTournamentAgent):
                                 continue
                         tournaments.append(tournament)
                 except Exception as e:
-                    print(f"Error parsing event: {e}")
+                    print(f"[Smoothcomp] Error parsing event: {e}")
                     continue
 
+            print(f"[Smoothcomp] Successfully parsed {len(tournaments)} tournaments")
+
         except Exception as e:
-            print(f"Error scraping events page: {e}")
+            print(f"[Smoothcomp] Error scraping events page: {e}")
+            import traceback
+            traceback.print_exc()
 
         return tournaments
 

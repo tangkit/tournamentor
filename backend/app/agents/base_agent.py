@@ -83,38 +83,46 @@ class BaseTournamentAgent(ABC):
         Returns:
             List of Tournament objects
         """
+        print(f"[{self.source.value}] Starting scrape, requires_login={self.requires_login}")
+
         if self.requires_login and not self.has_credentials():
-            print(f"No credentials configured for {self.source.value}, using mock data")
+            print(f"[{self.source.value}] No credentials configured, using mock data")
             return self._get_mock_data()
 
         try:
+            print(f"[{self.source.value}] Getting browser manager...")
             browser_manager = await get_browser_manager()
 
             # Try to use existing session state
             storage_state = self.storage_state_path if os.path.exists(self.storage_state_path) else None
+            print(f"[{self.source.value}] Storage state: {storage_state}")
 
             async with browser_manager.new_context(storage_state=storage_state) as context:
                 async with browser_manager.new_page(context) as page:
                     # Check if we need to login
                     if self.requires_login:
+                        print(f"[{self.source.value}] Checking login status...")
                         logged_in = await self._check_logged_in(page)
                         if not logged_in:
+                            print(f"[{self.source.value}] Not logged in, attempting login...")
                             success = await self._login(page, context)
                             if not success:
-                                print(f"Failed to login to {self.source.value}, using mock data")
+                                print(f"[{self.source.value}] Login failed, using mock data")
                                 return self._get_mock_data()
 
                     # Navigate to events page and scrape
+                    print(f"[{self.source.value}] Scraping events page...")
                     tournaments = await self._scrape_events_page(page, location)
 
                     if tournaments:
+                        print(f"[{self.source.value}] Found {len(tournaments)} tournaments")
                         return tournaments
                     else:
-                        print(f"No tournaments found on {self.source.value}, using mock data")
+                        print(f"[{self.source.value}] No tournaments found, using mock data")
                         return self._get_mock_data()
 
         except Exception as e:
-            print(f"Error scraping {self.source.value}: {e}")
+            print(f"[{self.source.value}] Error: {e}")
             import traceback
             traceback.print_exc()
             return self._get_mock_data()
