@@ -1,76 +1,315 @@
-import json
-from typing import List
+import re
+from typing import List, Optional
 from datetime import datetime, timedelta
 import random
+from playwright.async_api import Page, BrowserContext
+from bs4 import BeautifulSoup
 
 from .base_agent import BaseTournamentAgent
 from ..models import Tournament, TournamentSource
+from ..browser.manager import BrowserManager
 
 
 class SmoothcompAgent(BaseTournamentAgent):
-    """Agent for scraping tournaments from Smoothcomp."""
+    """Agent for scraping tournaments from Smoothcomp using Playwright."""
 
     @property
     def source(self) -> TournamentSource:
         return TournamentSource.SMOOTHCOMP
 
     @property
-    def target_url(self) -> str:
+    def base_url(self) -> str:
+        return "https://smoothcomp.com"
+
+    @property
+    def events_url(self) -> str:
         return "https://smoothcomp.com/en/events"
 
     @property
-    def extraction_prompt(self) -> str:
-        return """
-        Browse the Smoothcomp events page and extract all upcoming BJJ and Judo tournaments.
-        For each tournament, extract:
-        - Tournament name
-        - Date (start and end if available)
-        - Location (city, state/province, country)
-        - Organizer name
-        - Registration fees if visible
-        - Registration link/URL
-        - Brief description if available
+    def login_url(self) -> str:
+        return "https://smoothcomp.com/en/login"
 
-        Return the data as a JSON array of tournament objects.
-        Focus on tournaments happening in the next 6 months.
-        """
+    @property
+    def email_env_var(self) -> str:
+        return "SMOOTHCOMP_EMAIL"
 
-    def _parse_response(self, response: dict) -> List[Tournament]:
-        """Parse MultiOn response into Tournament objects."""
-        tournaments = []
+    @property
+    def password_env_var(self) -> str:
+        return "SMOOTHCOMP_PASSWORD"
+
+    async def _check_logged_in(self, page: Page) -> bool:
+        """Check if already logged in to Smoothcomp."""
         try:
-            # Extract text content from response
-            message = response.get("message", "")
+            await page.goto(self.base_url, wait_until='domcontentloaded')
+            await page.wait_for_timeout(2000)
 
-            # Try to find JSON in the response
-            if "[" in message and "]" in message:
-                start = message.find("[")
-                end = message.rfind("]") + 1
-                json_str = message[start:end]
-                data = json.loads(json_str)
+            # Check for user menu/profile indicator
+            logged_in_selectors = [
+                '[data-testid="user-menu"]',
+                '.user-dropdown',
+                '.profile-menu',
+                'a[href*="/profile"]',
+                'a[href*="/logout"]',
+                '.nav-user',
+            ]
 
-                for item in data:
-                    tournament = Tournament(
-                        id=self._generate_id(item.get("name", ""), item.get("date", "")),
-                        name=item.get("name", "Unknown Tournament"),
-                        date=item.get("date", "TBD"),
-                        end_date=item.get("end_date"),
-                        location=item.get("location", "TBD"),
-                        city=item.get("city"),
-                        state=item.get("state"),
-                        country=item.get("country"),
-                        description=item.get("description"),
-                        organizer=item.get("organizer"),
-                        fees=item.get("fees"),
-                        registration_link=item.get("registration_link", self.target_url),
-                        source=self.source,
-                        sport=item.get("sport", "BJJ"),
-                    )
-                    tournaments.append(tournament)
-        except json.JSONDecodeError:
-            pass
+            for selector in logged_in_selectors:
+                element = await page.query_selector(selector)
+                if element:
+                    return True
 
-        return tournaments if tournaments else self._get_mock_data()
+            # Check if login button is present (means not logged in)
+            login_button = await page.query_selector('a[href*="/login"]')
+            if login_button:
+                return False
+
+            return False
+        except Exception as e:
+            print(f"Error checking login status: {e}")
+            return False
+
+    async def _login(self, page: Page, context: BrowserContext) -> bool:
+        """Login to Smoothcomp."""
+        email, password = self.get_credentials()
+        if not email or not password:
+            return False
+
+        try:
+            await page.goto(self.login_url, wait_until='domcontentloaded')
+            await page.wait_for_timeout(2000)
+
+            # Fill login form
+            email_selectors = [
+                'input[name="email"]',
+                'input[type="email"]',
+                '#email',
+                'input[placeholder*="email" i]',
+            ]
+
+            password_selectors = [
+                'input[name="password"]',
+                'input[type="password"]',
+                '#password',
+            ]
+
+            # Find and fill email
+            for selector in email_selectors:
+                try:
+                    await page.wait_for_selector(selector, timeout=5000)
+                    await page.fill(selector, email)
+                    break
+                except Exception:
+                    continue
+
+            # Find and fill password
+            for selector in password_selectors:
+                try:
+                    await page.wait_for_selector(selector, timeout=5000)
+                    await page.fill(selector, password)
+                    break
+                except Exception:
+                    continue
+
+            # Submit login form
+            submit_selectors = [
+                'button[type="submit"]',
+                'input[type="submit"]',
+                'button:has-text("Log in")',
+                'button:has-text("Sign in")',
+                'button:has-text("Login")',
+            ]
+
+            for selector in submit_selectors:
+                try:
+                    await page.click(selector)
+                    break
+                except Exception:
+                    continue
+
+            # Wait for navigation after login
+            await page.wait_for_timeout(3000)
+            await page.wait_for_load_state('networkidle', timeout=10000)
+
+            # Verify login success
+            logged_in = await self._check_logged_in(page)
+            if logged_in:
+                await self._save_session(context)
+                return True
+
+            return False
+
+        except Exception as e:
+            print(f"Login error: {e}")
+            return False
+
+    async def _scrape_events_page(self, page: Page, location: Optional[str] = None) -> List[Tournament]:
+        """Scrape tournaments from Smoothcomp events page."""
+        tournaments = []
+
+        try:
+            await page.goto(self.events_url, wait_until='domcontentloaded')
+            await page.wait_for_timeout(3000)
+
+            # Scroll to load more events
+            for _ in range(3):
+                await page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+                await page.wait_for_timeout(1500)
+
+            # Get page content
+            content = await page.content()
+            soup = BeautifulSoup(content, 'lxml')
+
+            # Find event cards/listings
+            event_selectors = [
+                'div[class*="event-card"]',
+                'div[class*="event-item"]',
+                'article[class*="event"]',
+                '.event-listing',
+                '[data-event-id]',
+            ]
+
+            events = []
+            for selector in event_selectors:
+                events = soup.select(selector)
+                if events:
+                    break
+
+            # If no specific event containers found, look for links to events
+            if not events:
+                event_links = soup.select('a[href*="/en/event/"]')
+                for link in event_links:
+                    parent = link.find_parent(['div', 'article', 'li'])
+                    if parent and parent not in events:
+                        events.append(parent)
+
+            for event in events[:50]:  # Limit to 50 events
+                try:
+                    tournament = self._parse_event_element(event)
+                    if tournament:
+                        # Apply location filter
+                        if location:
+                            loc_lower = location.lower()
+                            if (loc_lower not in tournament.location.lower() and
+                                (not tournament.city or loc_lower not in tournament.city.lower()) and
+                                (not tournament.country or loc_lower not in tournament.country.lower())):
+                                continue
+                        tournaments.append(tournament)
+                except Exception as e:
+                    print(f"Error parsing event: {e}")
+                    continue
+
+        except Exception as e:
+            print(f"Error scraping events page: {e}")
+
+        return tournaments
+
+    def _parse_event_element(self, element) -> Optional[Tournament]:
+        """Parse a BeautifulSoup element into a Tournament object."""
+        try:
+            # Extract event name
+            name_elem = element.select_one('h2, h3, h4, .event-name, .event-title, [class*="title"]')
+            name = name_elem.get_text(strip=True) if name_elem else None
+
+            if not name:
+                link = element.select_one('a[href*="/event/"]')
+                if link:
+                    name = link.get_text(strip=True)
+
+            if not name:
+                return None
+
+            # Extract date
+            date_elem = element.select_one('[class*="date"], time, .event-date')
+            date_str = date_elem.get_text(strip=True) if date_elem else None
+            date = self._parse_date(date_str) if date_str else "TBD"
+
+            # Extract location
+            location_elem = element.select_one('[class*="location"], [class*="venue"], .event-location')
+            location = location_elem.get_text(strip=True) if location_elem else "TBD"
+
+            # Extract registration link
+            link_elem = element.select_one('a[href*="/event/"]')
+            registration_link = self.base_url + link_elem['href'] if link_elem and link_elem.get('href') else self.events_url
+
+            # Extract organizer
+            org_elem = element.select_one('[class*="organizer"], [class*="host"]')
+            organizer = org_elem.get_text(strip=True) if org_elem else None
+
+            # Extract description
+            desc_elem = element.select_one('[class*="description"], [class*="summary"], p')
+            description = desc_elem.get_text(strip=True)[:200] if desc_elem else None
+
+            # Parse location components
+            city, state, country = self._parse_location(location)
+
+            return Tournament(
+                id=self._generate_id(name, date),
+                name=name,
+                date=date,
+                location=location,
+                city=city,
+                state=state,
+                country=country,
+                description=description,
+                organizer=organizer,
+                fees=None,  # Usually requires clicking into the event
+                registration_link=registration_link,
+                source=self.source,
+                sport="BJJ",
+            )
+
+        except Exception as e:
+            print(f"Error parsing event element: {e}")
+            return None
+
+    def _parse_date(self, date_str: str) -> str:
+        """Parse date string into YYYY-MM-DD format."""
+        if not date_str:
+            return "TBD"
+
+        # Try various date formats
+        formats = [
+            "%Y-%m-%d",
+            "%d/%m/%Y",
+            "%m/%d/%Y",
+            "%B %d, %Y",
+            "%b %d, %Y",
+            "%d %B %Y",
+            "%d %b %Y",
+        ]
+
+        # Clean the date string
+        date_str = re.sub(r'\s+', ' ', date_str).strip()
+
+        for fmt in formats:
+            try:
+                parsed = datetime.strptime(date_str, fmt)
+                return parsed.strftime("%Y-%m-%d")
+            except ValueError:
+                continue
+
+        # Try to extract date with regex
+        match = re.search(r'(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})', date_str)
+        if match:
+            day, month, year = match.groups()
+            if len(year) == 2:
+                year = "20" + year
+            return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+
+        return "TBD"
+
+    def _parse_location(self, location: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
+        """Parse location string into city, state, country components."""
+        if not location or location == "TBD":
+            return None, None, None
+
+        parts = [p.strip() for p in location.split(',')]
+
+        city = parts[0] if len(parts) > 0 else None
+        state = parts[1] if len(parts) > 1 else None
+        country = parts[-1] if len(parts) > 2 else (parts[1] if len(parts) > 1 else None)
+
+        return city, state, country
 
     def _get_mock_data(self) -> List[Tournament]:
         """Return realistic mock data for Smoothcomp tournaments."""

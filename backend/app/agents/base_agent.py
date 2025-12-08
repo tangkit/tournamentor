@@ -1,19 +1,25 @@
 import os
-import json
-import httpx
+import hashlib
 from abc import ABC, abstractmethod
 from typing import List, Optional
 from datetime import datetime
+from playwright.async_api import Page, BrowserContext
 
 from ..models import Tournament, TournamentSource
+from ..browser.manager import get_browser_manager, BrowserManager
 
 
 class BaseTournamentAgent(ABC):
-    """Base class for tournament scraping agents using MultiOn AgentQ."""
+    """Base class for tournament scraping agents using Playwright."""
 
     def __init__(self):
-        self.multion_api_key = os.getenv("MULTION_API_KEY")
-        self.base_url = "https://api.multion.ai/v1"
+        self.storage_state_path = os.path.join(
+            os.path.dirname(__file__),
+            '..', '..', 'storage',
+            f'{self.source.value}_state.json'
+        )
+        # Ensure storage directory exists
+        os.makedirs(os.path.dirname(self.storage_state_path), exist_ok=True)
 
     @property
     @abstractmethod
@@ -23,60 +29,127 @@ class BaseTournamentAgent(ABC):
 
     @property
     @abstractmethod
-    def target_url(self) -> str:
-        """The URL to scrape tournaments from."""
+    def base_url(self) -> str:
+        """The base URL of the tournament site."""
         pass
 
     @property
     @abstractmethod
-    def extraction_prompt(self) -> str:
-        """The prompt for extracting tournament data."""
+    def events_url(self) -> str:
+        """The URL to the events/tournaments listing page."""
         pass
+
+    @property
+    @abstractmethod
+    def login_url(self) -> str:
+        """The URL to the login page."""
+        pass
+
+    @property
+    def requires_login(self) -> bool:
+        """Whether this source requires authentication."""
+        return True
+
+    @property
+    @abstractmethod
+    def email_env_var(self) -> str:
+        """Environment variable name for email credential."""
+        pass
+
+    @property
+    @abstractmethod
+    def password_env_var(self) -> str:
+        """Environment variable name for password credential."""
+        pass
+
+    def get_credentials(self) -> tuple[Optional[str], Optional[str]]:
+        """Get login credentials from environment variables."""
+        email = os.getenv(self.email_env_var)
+        password = os.getenv(self.password_env_var)
+        return email, password
+
+    def has_credentials(self) -> bool:
+        """Check if credentials are configured."""
+        email, password = self.get_credentials()
+        return bool(email and password)
 
     async def scrape_tournaments(self, location: Optional[str] = None) -> List[Tournament]:
         """
-        Use MultiOn AgentQ to browse and extract tournament data.
+        Use Playwright to browse and extract tournament data.
+
+        Args:
+            location: Optional location filter
+
+        Returns:
+            List of Tournament objects
         """
-        if not self.multion_api_key:
-            # Return mock data if no API key is configured
+        if self.requires_login and not self.has_credentials():
+            print(f"No credentials configured for {self.source.value}, using mock data")
             return self._get_mock_data()
 
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                # Create a browsing session with MultiOn
-                browse_payload = {
-                    "cmd": self.extraction_prompt,
-                    "url": self.target_url,
-                    "local": False,
-                    "include_screenshot": False
-                }
+            browser_manager = await get_browser_manager()
 
-                if location:
-                    browse_payload["cmd"] += f" Focus on tournaments in or near {location}."
+            # Try to use existing session state
+            storage_state = self.storage_state_path if os.path.exists(self.storage_state_path) else None
 
-                response = await client.post(
-                    f"{self.base_url}/browse",
-                    headers={
-                        "X-MULTION-API-KEY": self.multion_api_key,
-                        "Content-Type": "application/json"
-                    },
-                    json=browse_payload
-                )
+            async with browser_manager.new_context(storage_state=storage_state) as context:
+                async with browser_manager.new_page(context) as page:
+                    # Check if we need to login
+                    if self.requires_login:
+                        logged_in = await self._check_logged_in(page)
+                        if not logged_in:
+                            success = await self._login(page, context)
+                            if not success:
+                                print(f"Failed to login to {self.source.value}, using mock data")
+                                return self._get_mock_data()
 
-                if response.status_code == 200:
-                    result = response.json()
-                    return self._parse_response(result)
-                else:
-                    print(f"MultiOn API error: {response.status_code} - {response.text}")
-                    return self._get_mock_data()
+                    # Navigate to events page and scrape
+                    tournaments = await self._scrape_events_page(page, location)
+
+                    if tournaments:
+                        return tournaments
+                    else:
+                        print(f"No tournaments found on {self.source.value}, using mock data")
+                        return self._get_mock_data()
 
         except Exception as e:
-            print(f"Error scraping {self.source}: {e}")
+            print(f"Error scraping {self.source.value}: {e}")
+            import traceback
+            traceback.print_exc()
             return self._get_mock_data()
 
     @abstractmethod
-    def _parse_response(self, response: dict) -> List[Tournament]:
-        """Parse the MultiOn response into Tournament objects."""
+    async def _check_logged_in(self, page: Page) -> bool:
+        """Check if already logged in to the site."""
+        pass
+
+    @abstractmethod
+    async def _login(self, page: Page, context: BrowserContext) -> bool:
+        """
+        Perform login to the tournament site.
+
+        Args:
+            page: Playwright page
+            context: Browser context for saving state
+
+        Returns:
+            True if login successful
+        """
+        pass
+
+    @abstractmethod
+    async def _scrape_events_page(self, page: Page, location: Optional[str] = None) -> List[Tournament]:
+        """
+        Scrape tournaments from the events page.
+
+        Args:
+            page: Playwright page (already logged in)
+            location: Optional location filter
+
+        Returns:
+            List of Tournament objects
+        """
         pass
 
     @abstractmethod
@@ -86,5 +159,12 @@ class BaseTournamentAgent(ABC):
 
     def _generate_id(self, name: str, date: str) -> str:
         """Generate a unique ID for a tournament."""
-        import hashlib
-        return hashlib.md5(f"{self.source}:{name}:{date}".encode()).hexdigest()[:12]
+        return hashlib.md5(f"{self.source.value}:{name}:{date}".encode()).hexdigest()[:12]
+
+    async def _save_session(self, context: BrowserContext):
+        """Save browser session state for future use."""
+        try:
+            await context.storage_state(path=self.storage_state_path)
+            print(f"Session saved for {self.source.value}")
+        except Exception as e:
+            print(f"Failed to save session for {self.source.value}: {e}")

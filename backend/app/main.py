@@ -1,4 +1,5 @@
 import os
+from contextlib import asynccontextmanager
 from typing import List, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,14 +15,26 @@ from .models import (
 )
 from .services.tournament_service import TournamentService
 from .services.chat_service import ChatService
+from .browser.manager import cleanup_browser
 
 # Load environment variables
 load_dotenv()
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifecycle - cleanup browser on shutdown."""
+    yield
+    # Cleanup browser resources on shutdown
+    await cleanup_browser()
+    print("Browser resources cleaned up")
+
+
 app = FastAPI(
     title="Tournamentor API",
-    description="AI-powered BJJ and Judo tournament aggregator",
-    version="1.0.0"
+    description="AI-powered BJJ and Judo tournament aggregator using Playwright",
+    version="2.0.0",
+    lifespan=lifespan
 )
 
 # Configure CORS
@@ -46,8 +59,9 @@ async def root():
     """Root endpoint with API info."""
     return {
         "name": "Tournamentor API",
-        "version": "1.0.0",
-        "description": "AI-powered BJJ and Judo tournament aggregator",
+        "version": "2.0.0",
+        "description": "AI-powered BJJ and Judo tournament aggregator using Playwright",
+        "scraping_engine": "Playwright",
         "endpoints": {
             "chat": "/api/chat",
             "search": "/api/tournaments/search",
@@ -167,11 +181,11 @@ async def get_sources():
     """Get list of available tournament sources."""
     return {
         "sources": [
-            {"id": "smoothcomp", "name": "Smoothcomp", "url": "https://smoothcomp.com"},
-            {"id": "ibjjf", "name": "IBJJF", "url": "https://ibjjf.com"},
-            {"id": "asjjf", "name": "ASJJF", "url": "https://www.asjjf.org"},
-            {"id": "naga", "name": "NAGA", "url": "https://www.nagafighter.com"},
-            {"id": "grappling_industries", "name": "Grappling Industries", "url": "https://grapplingindustries.com"},
+            {"id": "smoothcomp", "name": "Smoothcomp", "url": "https://smoothcomp.com", "requires_login": True},
+            {"id": "ibjjf", "name": "IBJJF", "url": "https://ibjjf.com", "requires_login": True},
+            {"id": "asjjf", "name": "ASJJF", "url": "https://www.asjjf.org", "requires_login": True},
+            {"id": "naga", "name": "NAGA", "url": "https://www.nagafighter.com", "requires_login": False},
+            {"id": "grappling_industries", "name": "Grappling Industries", "url": "https://grapplingindustries.com", "requires_login": False},
         ]
     }
 
@@ -179,4 +193,4 @@ async def get_sources():
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "healthy"}
+    return {"status": "healthy", "scraping_engine": "playwright"}
