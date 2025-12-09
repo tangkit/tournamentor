@@ -148,58 +148,70 @@ class SmoothcompAgent(BaseTournamentAgent):
             return False
 
     async def _apply_country_filter(self, page: Page, location: str) -> bool:
-        """Apply country filter on Smoothcomp events page."""
+        """Apply country filter on Smoothcomp events page using their dropdown."""
         try:
             print(f"[Smoothcomp] Applying country filter for: {location}")
 
-            # Click on the country dropdown
-            country_dropdown = await page.query_selector('select[class*="country"], [class*="select-countries"], [placeholder*="country" i]')
-            if country_dropdown:
-                await country_dropdown.click()
-                await page.wait_for_timeout(500)
-
-            # Try to find and click on the country filter dropdown
-            # Look for "Select countries" button or similar
-            filter_buttons = await page.query_selector_all('button, [role="combobox"], [class*="dropdown"]')
-            for btn in filter_buttons:
-                text = await btn.text_content()
-                if text and ('country' in text.lower() or 'select' in text.lower()):
-                    await btn.click()
-                    await page.wait_for_timeout(1000)
-                    break
-
-            # Type the country name to filter
-            location_lower = location.lower()
-
-            # Try to find an input field for filtering
-            input_field = await page.query_selector('input[type="text"], input[placeholder*="search" i], input[placeholder*="filter" i]')
-            if input_field:
-                await input_field.fill(location)
-                await page.wait_for_timeout(500)
-
-            # Try to click on matching country option
-            options = await page.query_selector_all('[role="option"], [class*="option"], li')
-            for opt in options:
-                text = await opt.text_content()
-                if text and location_lower in text.lower():
-                    await opt.click()
-                    print(f"[Smoothcomp] Selected country filter: {text}")
-                    await page.wait_for_timeout(2000)
-                    return True
-
-            # If no dropdown found, try URL-based filtering
-            # Smoothcomp might support URL params like ?country=Malaysia
-            current_url = page.url
-            if '?' not in current_url:
-                filter_url = f"{current_url}?country={location}"
-            else:
-                filter_url = f"{current_url}&country={location}"
-
-            print(f"[Smoothcomp] Trying URL filter: {filter_url}")
-            await page.goto(filter_url, wait_until='domcontentloaded')
+            # Wait for page to be fully loaded
             await page.wait_for_timeout(2000)
 
-            return True
+            # Find and click the "Select countries" dropdown
+            # Try multiple selectors for the country dropdown
+            dropdown_selectors = [
+                'text="Select countries"',
+                '[placeholder*="country" i]',
+                '[class*="country"]',
+                'select',
+            ]
+
+            clicked = False
+            for selector in dropdown_selectors:
+                try:
+                    element = await page.query_selector(selector)
+                    if element:
+                        await element.click()
+                        await page.wait_for_timeout(1000)
+                        clicked = True
+                        print(f"[Smoothcomp] Clicked dropdown with selector: {selector}")
+                        break
+                except Exception:
+                    continue
+
+            if not clicked:
+                # Try clicking by text content
+                try:
+                    await page.click('text="Select countries"')
+                    await page.wait_for_timeout(1000)
+                    clicked = True
+                    print("[Smoothcomp] Clicked 'Select countries' text")
+                except Exception:
+                    pass
+
+            if clicked:
+                # Now type the country name to search/filter
+                await page.keyboard.type(location, delay=100)
+                await page.wait_for_timeout(1000)
+
+                # Press Enter or click the matching option
+                try:
+                    # Look for the country in dropdown options
+                    option = await page.query_selector(f'text="{location}"')
+                    if option:
+                        await option.click()
+                        print(f"[Smoothcomp] Selected: {location}")
+                        await page.wait_for_timeout(2000)
+                        return True
+                    else:
+                        # Try pressing Enter
+                        await page.keyboard.press('Enter')
+                        await page.wait_for_timeout(2000)
+                        return True
+                except Exception as e:
+                    print(f"[Smoothcomp] Could not select option: {e}")
+
+            # Fallback: Check if URL already filtered or try URL param
+            print(f"[Smoothcomp] Dropdown filter may not have worked, continuing anyway...")
+            return False
 
         except Exception as e:
             print(f"[Smoothcomp] Could not apply country filter: {e}")
