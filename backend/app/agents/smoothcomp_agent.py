@@ -150,71 +150,120 @@ class SmoothcompAgent(BaseTournamentAgent):
     async def _apply_country_filter(self, page: Page, location: str) -> bool:
         """Apply country filter on Smoothcomp events page using their dropdown."""
         try:
-            print(f"[Smoothcomp] Applying country filter for: {location}")
+            print(f"[Smoothcomp] === APPLYING COUNTRY FILTER ===")
+            print(f"[Smoothcomp] Looking for country: {location}")
+            print(f"[Smoothcomp] Current URL: {page.url}")
 
             # Wait for page to be fully loaded
             await page.wait_for_timeout(2000)
 
+            # Debug: Print all visible text on page to understand structure
+            all_buttons = await page.query_selector_all('button')
+            print(f"[Smoothcomp] Found {len(all_buttons)} buttons on page")
+            for i, btn in enumerate(all_buttons[:10]):  # First 10 buttons
+                text = await btn.text_content()
+                print(f"[Smoothcomp]   Button {i}: '{text[:50] if text else 'None'}...'")
+
+            # Debug: Look for select elements
+            all_selects = await page.query_selector_all('select')
+            print(f"[Smoothcomp] Found {len(all_selects)} select elements")
+
+            # Debug: Look for input elements
+            all_inputs = await page.query_selector_all('input')
+            print(f"[Smoothcomp] Found {len(all_inputs)} input elements")
+            for i, inp in enumerate(all_inputs[:10]):
+                placeholder = await inp.get_attribute('placeholder')
+                input_type = await inp.get_attribute('type')
+                print(f"[Smoothcomp]   Input {i}: type='{input_type}', placeholder='{placeholder}'")
+
+            # Debug: Look for anything with "country" in class or text
+            country_elements = await page.query_selector_all('[class*="country"], [class*="Country"]')
+            print(f"[Smoothcomp] Found {len(country_elements)} elements with 'country' in class")
+
             # Find and click the "Select countries" dropdown
-            # Try multiple selectors for the country dropdown
             dropdown_selectors = [
                 'text="Select countries"',
+                'text="Select Countries"',
                 '[placeholder*="country" i]',
-                '[class*="country"]',
-                'select',
+                '[placeholder*="Country"]',
+                '[class*="country-select"]',
+                '[class*="country-filter"]',
             ]
 
             clicked = False
             for selector in dropdown_selectors:
                 try:
+                    print(f"[Smoothcomp] Trying selector: {selector}")
                     element = await page.query_selector(selector)
                     if element:
+                        print(f"[Smoothcomp] Found element with selector: {selector}")
+                        # Get element info
+                        tag = await element.evaluate('el => el.tagName')
+                        text = await element.text_content()
+                        print(f"[Smoothcomp] Element tag: {tag}, text: '{text[:50] if text else 'None'}'")
+
                         await element.click()
                         await page.wait_for_timeout(1000)
                         clicked = True
-                        print(f"[Smoothcomp] Clicked dropdown with selector: {selector}")
+                        print(f"[Smoothcomp] Successfully clicked dropdown!")
                         break
-                except Exception:
+                    else:
+                        print(f"[Smoothcomp] No element found for: {selector}")
+                except Exception as e:
+                    print(f"[Smoothcomp] Error with selector {selector}: {e}")
                     continue
 
             if not clicked:
-                # Try clicking by text content
+                # Try clicking by text content directly
                 try:
+                    print("[Smoothcomp] Trying direct text click: 'Select countries'")
                     await page.click('text="Select countries"')
                     await page.wait_for_timeout(1000)
                     clicked = True
-                    print("[Smoothcomp] Clicked 'Select countries' text")
-                except Exception:
-                    pass
+                    print("[Smoothcomp] Clicked 'Select countries' text successfully")
+                except Exception as e:
+                    print(f"[Smoothcomp] Direct text click failed: {e}")
 
             if clicked:
+                print(f"[Smoothcomp] Dropdown clicked, now typing: {location}")
                 # Now type the country name to search/filter
                 await page.keyboard.type(location, delay=100)
                 await page.wait_for_timeout(1000)
 
+                # Debug: Check what options appeared
+                options = await page.query_selector_all('[role="option"], [class*="option"], li')
+                print(f"[Smoothcomp] Found {len(options)} dropdown options after typing")
+                for i, opt in enumerate(options[:5]):
+                    text = await opt.text_content()
+                    print(f"[Smoothcomp]   Option {i}: '{text}'")
+
                 # Press Enter or click the matching option
                 try:
-                    # Look for the country in dropdown options
                     option = await page.query_selector(f'text="{location}"')
                     if option:
                         await option.click()
-                        print(f"[Smoothcomp] Selected: {location}")
+                        print(f"[Smoothcomp] Clicked option: {location}")
                         await page.wait_for_timeout(2000)
+                        print(f"[Smoothcomp] After filter, URL: {page.url}")
                         return True
                     else:
-                        # Try pressing Enter
+                        print("[Smoothcomp] Option not found, pressing Enter")
                         await page.keyboard.press('Enter')
                         await page.wait_for_timeout(2000)
+                        print(f"[Smoothcomp] After Enter, URL: {page.url}")
                         return True
                 except Exception as e:
                     print(f"[Smoothcomp] Could not select option: {e}")
+            else:
+                print("[Smoothcomp] WARNING: Could not click any dropdown!")
 
-            # Fallback: Check if URL already filtered or try URL param
-            print(f"[Smoothcomp] Dropdown filter may not have worked, continuing anyway...")
+            print(f"[Smoothcomp] === COUNTRY FILTER COMPLETED (success={clicked}) ===")
             return False
 
         except Exception as e:
-            print(f"[Smoothcomp] Could not apply country filter: {e}")
+            print(f"[Smoothcomp] Country filter error: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     async def _scrape_events_page(self, page: Page, location: Optional[str] = None) -> List[Tournament]:
