@@ -103,12 +103,20 @@ class BaseTournamentAgent(ABC):
                     if self.requires_login:
                         print(f"[{self.source.value}] Checking login status...")
                         logged_in = await self._check_logged_in(page)
-                        if not logged_in:
+                        if logged_in:
+                            print(f"[{self.source.value}] ✓ ALREADY LOGGED IN - Session restored successfully")
+                        else:
                             print(f"[{self.source.value}] Not logged in, attempting login...")
+                            email, _ = self.get_credentials()
+                            print(f"[{self.source.value}] Using credentials for: {email}")
                             success = await self._login(page, context)
-                            if not success:
-                                print(f"[{self.source.value}] Login failed, using mock data")
+                            if success:
+                                print(f"[{self.source.value}] ✓ LOGIN SUCCESSFUL - Authenticated with {email}")
+                            else:
+                                print(f"[{self.source.value}] ✗ LOGIN FAILED - Could not authenticate with {email}")
                                 return self._get_mock_data()
+                    else:
+                        print(f"[{self.source.value}] No login required for this source")
 
                     # Navigate to events page and scrape
                     print(f"[{self.source.value}] Scraping events page...")

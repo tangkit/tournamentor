@@ -392,16 +392,22 @@ class SmoothcompAgent(BaseTournamentAgent):
                         else:
                             location = country
 
-            # Extract organizer - look for "Organizer" section
+            # Extract organizer - look for "Organizer & merchant" section
             organizer = None
-            org_match = re.search(r'Organizer[^:]*[:\s]+([A-Za-z][A-Za-z\s]+?)(?:\d|\bon\b|$)', page_text)
+            # Look for pattern like "Grappling Industries Malaysia" before "year on Smoothcomp"
+            org_match = re.search(r'(?:Organizer|merchant)[^A-Za-z]*([A-Z][A-Za-z]+(?:\s+[A-Z][a-z]+)+)(?:\s*\d|\s+year|\s+event)', page_text)
             if org_match:
                 organizer = org_match.group(1).strip()
-            else:
-                # Try to find text after "merchant" or "organizer"
-                org_match = re.search(r'(?:merchant|organizer)[:\s]+([A-Za-z][A-Za-z\s]+?)(?:\d|year|event|on\s+Smooth)', page_text, re.IGNORECASE)
+
+            # Alternative: look for organization name pattern before "on Smoothcomp"
+            if not organizer:
+                org_match = re.search(r'([A-Z][A-Za-z]+(?:\s+[A-Z][a-z]+){1,4})\s+\d+\s+year', page_text)
                 if org_match:
                     organizer = org_match.group(1).strip()
+
+            # Filter out common false positives
+            if organizer and organizer.lower() in ['cancel', 'download', 'accept', 'submit', 'register', 'login', 'sign']:
+                organizer = None
 
             # Extract fees - look for price patterns with context
             fees = None
@@ -425,22 +431,50 @@ class SmoothcompAgent(BaseTournamentAgent):
 
             # Extract date - look for "Event dates" section or date patterns
             date_str = None
-            # Look for "Event dates" followed by date
-            date_match = re.search(r'Event\s+dates?\s*[:\s]+(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*)', page_text, re.IGNORECASE)
+            print(f"[Smoothcomp] === DATE EXTRACTION DEBUG ===")
+
+            # Look for "Event dates" followed by date - Smoothcomp shows this as a header
+            # Pattern: "Event dates 10 Jan - 11 Jan" or "Event dates 10 January 2026"
+            date_match = re.search(r'Event\s+dates?\s*[:\s]*(\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[a-z]*(?:\s*[-–&]\s*\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[a-z]*)?)(?:\s*,?\s*(\d{4}))?', page_text, re.IGNORECASE)
             if date_match:
                 date_str = date_match.group(1)
-            else:
-                # Look for date pattern with year like "January 10 & 11, 2026"
-                date_match = re.search(r'(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:\s*[&,-]\s*\d{1,2})?,?\s*\d{4}', page_text, re.IGNORECASE)
+                year = date_match.group(2)
+                if year:
+                    date_str = f"{date_str} {year}"
+                print(f"[Smoothcomp] Found 'Event dates' pattern: '{date_str}'")
+
+            # If no match, look for standalone date patterns
+            if not date_str:
+                # Look for "10 Jan 2026" or "10 January 2026" pattern
+                date_match = re.search(r'(\d{1,2})\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[a-z]*\s+(\d{4})', page_text, re.IGNORECASE)
                 if date_match:
                     date_str = date_match.group(0)
-                else:
-                    # Look for "10 Jan" pattern
-                    date_match = re.search(r'(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*(?:\s*[-&]\s*\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*)?\s*(?:,?\s*(\d{4}))?', page_text, re.IGNORECASE)
-                    if date_match:
-                        date_str = date_match.group(0)
+                    print(f"[Smoothcomp] Found 'DD Mon YYYY' pattern: '{date_str}'")
+
+            if not date_str:
+                # Look for "January 10, 2026" pattern
+                date_match = re.search(r'(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2})(?:\s*[&,-]\s*\d{1,2})?,?\s*(\d{4})', page_text, re.IGNORECASE)
+                if date_match:
+                    date_str = date_match.group(0)
+                    print(f"[Smoothcomp] Found 'Month DD, YYYY' pattern: '{date_str}'")
+
+            if not date_str:
+                # Last resort: look for any "10 Jan" without year (assume current/next year)
+                date_match = re.search(r'(\d{1,2})\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)', page_text, re.IGNORECASE)
+                if date_match:
+                    date_str = date_match.group(0)
+                    print(f"[Smoothcomp] Found 'DD Mon' pattern without year: '{date_str}'")
+
+            if not date_str:
+                print(f"[Smoothcomp] No date pattern found in page text")
+                # Debug: print a snippet that might contain the date
+                if 'Event' in page_text:
+                    idx = page_text.find('Event')
+                    snippet = page_text[max(0, idx):min(len(page_text), idx+200)]
+                    print(f"[Smoothcomp] Text near 'Event': '{snippet}'")
 
             date = self._parse_date(date_str) if date_str else "TBD"
+            print(f"[Smoothcomp] Final parsed date: '{date}'")
 
             # Parse location components
             city, state, country = self._parse_location(location)
@@ -474,37 +508,71 @@ class SmoothcompAgent(BaseTournamentAgent):
         if not date_str:
             return "TBD"
 
-        # Try various date formats
-        formats = [
+        print(f"[Smoothcomp] _parse_date input: '{date_str}'")
+
+        # Clean the date string - normalize spaces and dashes
+        date_str = re.sub(r'\s+', ' ', date_str).strip()
+        # Remove range part (e.g., "10 Jan - 11 Jan" -> "10 Jan")
+        date_str = re.split(r'\s*[-–&]\s*\d', date_str)[0].strip()
+        print(f"[Smoothcomp] _parse_date cleaned: '{date_str}'")
+
+        # Try various date formats with year
+        formats_with_year = [
             "%Y-%m-%d",
+            "%d %B %Y",      # 10 January 2026
+            "%d %b %Y",      # 10 Jan 2026
+            "%B %d, %Y",     # January 10, 2026
+            "%b %d, %Y",     # Jan 10, 2026
+            "%B %d %Y",      # January 10 2026
+            "%b %d %Y",      # Jan 10 2026
             "%Y %B %d",      # 2026 January 10
             "%Y %b %d",      # 2026 Jan 10
             "%d/%m/%Y",
             "%m/%d/%Y",
-            "%B %d, %Y",
-            "%b %d, %Y",
-            "%d %B %Y",
-            "%d %b %Y",
         ]
 
-        # Clean the date string
-        date_str = re.sub(r'\s+', ' ', date_str).strip()
-
-        for fmt in formats:
+        for fmt in formats_with_year:
             try:
                 parsed = datetime.strptime(date_str, fmt)
-                return parsed.strftime("%Y-%m-%d")
+                result = parsed.strftime("%Y-%m-%d")
+                print(f"[Smoothcomp] Parsed with format '{fmt}': {result}")
+                return result
             except ValueError:
                 continue
 
-        # Try to extract date with regex
+        # Try formats WITHOUT year - assume current year or next year if date has passed
+        formats_no_year = [
+            "%d %B",         # 10 January
+            "%d %b",         # 10 Jan
+            "%B %d",         # January 10
+            "%b %d",         # Jan 10
+        ]
+
+        current_year = datetime.now().year
+        for fmt in formats_no_year:
+            try:
+                parsed = datetime.strptime(date_str, fmt)
+                # Use current year, but if date is in the past, use next year
+                parsed = parsed.replace(year=current_year)
+                if parsed < datetime.now() - timedelta(days=30):  # 30 day grace period
+                    parsed = parsed.replace(year=current_year + 1)
+                result = parsed.strftime("%Y-%m-%d")
+                print(f"[Smoothcomp] Parsed with format '{fmt}' (no year): {result}")
+                return result
+            except ValueError:
+                continue
+
+        # Try to extract date with regex for numeric formats
         match = re.search(r'(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})', date_str)
         if match:
             day, month, year = match.groups()
             if len(year) == 2:
                 year = "20" + year
-            return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+            result = f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+            print(f"[Smoothcomp] Parsed with numeric regex: {result}")
+            return result
 
+        print(f"[Smoothcomp] Could not parse date: '{date_str}'")
         return "TBD"
 
     def _parse_location(self, location: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
