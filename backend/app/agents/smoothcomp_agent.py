@@ -223,16 +223,40 @@ class SmoothcompAgent(BaseTournamentAgent):
                 # Type the country name
                 await page.keyboard.type(location, delay=50)
                 print(f"[Smoothcomp] Typed '{location}'")
-                await page.wait_for_timeout(1000)
+                await page.wait_for_timeout(1500)
 
-                # Press Enter to select the first matching option (adds it as a tag)
-                await page.keyboard.press('Enter')
-                print(f"[Smoothcomp] Pressed Enter to add tag")
-                await page.wait_for_timeout(3000)
+                # Look for dropdown option that matches and click it directly
+                # This is safer than pressing Enter which might select wrong option
+                dropdown_selectors = [
+                    f'li:has-text("{location}")',
+                    f'div[class*="option"]:has-text("{location}")',
+                    f'span:has-text("{location}")',
+                    f'[class*="dropdown"] *:has-text("{location}")',
+                ]
 
-                # Click outside to close any dropdown and apply filter
-                await page.click('body')
+                option_clicked = False
+                for selector in dropdown_selectors:
+                    try:
+                        option = await page.query_selector(selector)
+                        if option:
+                            await option.click()
+                            option_clicked = True
+                            print(f"[Smoothcomp] Clicked dropdown option for '{location}'")
+                            break
+                    except Exception:
+                        continue
+
+                # Fallback: if no dropdown option found, use keyboard
+                if not option_clicked:
+                    # Press Tab instead of Enter to avoid selecting wrong option
+                    await page.keyboard.press('Escape')
+                    print(f"[Smoothcomp] Pressed Escape to close dropdown (no option found)")
+
                 await page.wait_for_timeout(2000)
+
+                # Press Escape to ensure dropdown is closed
+                await page.keyboard.press('Escape')
+                await page.wait_for_timeout(1000)
 
                 print(f"[Smoothcomp] Country filter applied for: {location}")
                 return True
@@ -322,16 +346,10 @@ class SmoothcompAgent(BaseTournamentAgent):
             for i, url in enumerate(urls_to_scrape):
                 try:
                     print(f"[Smoothcomp] [{i+1}/{len(urls_to_scrape)}] Scraping {url}")
-                    tournament = await self._scrape_event_detail(page, url)
+                    tournament = await self._scrape_event_detail(page, url, target_location=location)
                     if tournament:
-                        # Apply location filter
-                        if location:
-                            loc_lower = location.lower()
-                            if (loc_lower not in tournament.location.lower() and
-                                (not tournament.city or loc_lower not in tournament.city.lower()) and
-                                (not tournament.country or loc_lower not in tournament.country.lower())):
-                                print(f"[Smoothcomp] Skipping - location filter didn't match")
-                                continue
+                        # We already pre-filtered at card level, so trust that filter
+                        # Just add the tournament
                         tournaments.append(tournament)
                         print(f"[Smoothcomp] Added: {tournament.name[:40]}...")
                 except Exception as e:
@@ -347,7 +365,7 @@ class SmoothcompAgent(BaseTournamentAgent):
 
         return tournaments
 
-    async def _scrape_event_detail(self, page: Page, url: str) -> Optional[Tournament]:
+    async def _scrape_event_detail(self, page: Page, url: str, target_location: Optional[str] = None) -> Optional[Tournament]:
         """Scrape full tournament details from event detail page."""
         try:
             await page.goto(url, wait_until='domcontentloaded')
@@ -502,6 +520,17 @@ class SmoothcompAgent(BaseTournamentAgent):
 
             # Parse location components
             city, state, country = self._parse_location(location)
+
+            # If we have a target location and it's found in page text, use it as country
+            # This helps when location extraction fails to get proper country
+            if target_location and target_location.lower() in page_text.lower():
+                if not country or country == location:  # country wasn't properly parsed
+                    country = target_location
+                    print(f"[Smoothcomp] Set country to target location: '{country}'")
+                # Also update location string if it's generic
+                if location == "TBD" or "Location" in location:
+                    location = target_location
+                    print(f"[Smoothcomp] Updated location to: '{location}'")
 
             print(f"[Smoothcomp] Detail: name='{name[:30]}...', loc='{location[:30]}...', org='{organizer}', fees='{fees}', date='{date}'")
 
