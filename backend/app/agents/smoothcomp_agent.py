@@ -267,7 +267,6 @@ class SmoothcompAgent(BaseTournamentAgent):
             if location == "TBD" or ',' not in location:
                 all_text = element.get_text(separator='|', strip=True)
                 # Look for patterns like "City, Country"
-                import re
                 loc_match = re.search(r'([A-Za-z\s]+,\s*[A-Za-z\s]+)', all_text)
                 if loc_match:
                     potential_loc = loc_match.group(1).strip()
@@ -293,7 +292,6 @@ class SmoothcompAgent(BaseTournamentAgent):
             if not date_str:
                 all_text = element.get_text(strip=True)
                 # Look for "2026 January 10" or "2026 January 10 - 11" patterns
-                import re
                 # Match date with optional range (e.g., "2026 January 10 - 11")
                 date_match = re.search(r'(\d{4}\s+[A-Za-z]+\s+\d{1,2})(?:\s*-\s*\d{1,2})?', all_text)
                 if date_match:
