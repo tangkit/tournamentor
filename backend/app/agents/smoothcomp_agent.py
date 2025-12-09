@@ -283,25 +283,40 @@ class SmoothcompAgent(BaseTournamentAgent):
             content = await page.content()
             soup = BeautifulSoup(content, 'lxml')
 
-            # Find all event links
+            # Find all event cards/links and pre-filter by location shown on card
             event_links = soup.select('a[href*="/en/event/"]')
             unique_urls = []
             seen = set()
+
             for link in event_links:
                 href = link.get('href', '')
                 if href and '/en/event/' in href:
-                    # Build full URL
-                    if href.startswith('/'):
-                        full_url = self.base_url + href
-                    else:
-                        full_url = href
-                    # Only add unique event URLs (not subpages)
                     event_id = href.split('/en/event/')[-1].split('/')[0]
                     if event_id and event_id not in seen:
+                        # Check if this event card mentions the target location
+                        # Look at parent container for location text
+                        if location:
+                            parent = link.find_parent(['div', 'article', 'li', 'section'])
+                            if parent:
+                                card_text = parent.get_text(separator=' ', strip=True).lower()
+                                loc_lower = location.lower()
+                                # Only add if location is mentioned in the card
+                                if loc_lower not in card_text:
+                                    continue  # Skip this event - wrong country
+                                print(f"[Smoothcomp] Found event card mentioning '{location}'")
+
                         seen.add(event_id)
+                        if href.startswith('/'):
+                            full_url = self.base_url + href
+                        else:
+                            full_url = href
                         unique_urls.append(full_url)
 
-            print(f"[Smoothcomp] Found {len(unique_urls)} unique event URLs")
+            print(f"[Smoothcomp] Found {len(unique_urls)} events matching '{location or 'all locations'}'")
+
+            if location and len(unique_urls) == 0:
+                print(f"[Smoothcomp] WARNING: No events found for '{location}' on listing page")
+                print(f"[Smoothcomp] The country filter may not have worked. Check if '{location}' is spelled correctly.")
 
             # Limit to first 20 events to avoid too many requests
             max_events = 20
