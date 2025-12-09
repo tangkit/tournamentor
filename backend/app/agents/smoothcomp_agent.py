@@ -155,13 +155,69 @@ class SmoothcompAgent(BaseTournamentAgent):
             # Wait for page to be fully loaded
             await page.wait_for_timeout(2000)
 
-            # Find the tags input field for countries
-            input_selector = 'input[aria-placeholder="Select countries"], input.multiselect-tags-search'
-
+            # Strategy: Find the country filter by looking for text "Countries" label
+            # then click the input field within that filter section
             try:
-                # Click on the input to focus it
-                await page.click(input_selector, timeout=5000)
-                print(f"[Smoothcomp] Clicked country input field")
+                # Method 1: Look for the country filter section by finding "Countries" text
+                # and then clicking the nearby input
+                country_filter_found = False
+
+                # Try to find by label text - Smoothcomp shows filter labels
+                # Look for a container with "Countries" text, then find input within it
+                filter_sections = await page.query_selector_all('div.multiselect, div[class*="filter"], div[class*="select"]')
+                print(f"[Smoothcomp] Found {len(filter_sections)} potential filter sections")
+
+                for section in filter_sections:
+                    section_text = await section.inner_text()
+                    if 'countries' in section_text.lower() or 'country' in section_text.lower():
+                        print(f"[Smoothcomp] Found country filter section")
+                        # Find input within this section
+                        input_elem = await section.query_selector('input')
+                        if input_elem:
+                            await input_elem.click()
+                            country_filter_found = True
+                            print(f"[Smoothcomp] Clicked country input field")
+                            break
+
+                # Method 2: Try finding by placeholder that specifically mentions countries
+                if not country_filter_found:
+                    # Try various country-specific selectors
+                    country_selectors = [
+                        'input[placeholder*="countr" i]',
+                        'input[aria-label*="countr" i]',
+                        'div:has-text("Countries") input',
+                        'label:has-text("Countries") + div input',
+                        'label:has-text("Countries") ~ div input',
+                    ]
+
+                    for selector in country_selectors:
+                        try:
+                            elem = await page.query_selector(selector)
+                            if elem:
+                                await elem.click()
+                                country_filter_found = True
+                                print(f"[Smoothcomp] Found country input with selector: {selector}")
+                                break
+                        except Exception:
+                            continue
+
+                # Method 3: Use locator with text matching
+                if not country_filter_found:
+                    try:
+                        # Find element containing "Countries" text, then find input
+                        countries_label = page.locator('text=Countries').first
+                        parent = countries_label.locator('xpath=ancestor::div[contains(@class, "multiselect") or contains(@class, "filter")]').first
+                        input_elem = parent.locator('input').first
+                        await input_elem.click()
+                        country_filter_found = True
+                        print(f"[Smoothcomp] Found country input via locator")
+                    except Exception:
+                        pass
+
+                if not country_filter_found:
+                    print(f"[Smoothcomp] Could not find country filter input")
+                    return False
+
                 await page.wait_for_timeout(500)
 
                 # Type the country name
