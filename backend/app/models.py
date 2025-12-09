@@ -9,7 +9,6 @@ class TournamentSource(str, Enum):
     ASJJF = "asjjf"
     IBJJF = "ibjjf"
     NAGA = "naga"
-    GRAPPLING_INDUSTRIES = "grappling_industries"
     OTHER = "other"
 
 

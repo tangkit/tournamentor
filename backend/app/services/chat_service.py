@@ -229,7 +229,6 @@ Always be helpful, friendly, and knowledgeable about the BJJ/Judo competition sc
             "smoothcomp": TournamentSource.SMOOTHCOMP,
             "asjjf": TournamentSource.ASJJF,
             "naga": TournamentSource.NAGA,
-            "grappling industries": TournamentSource.GRAPPLING_INDUSTRIES,
         }
 
         for keyword, source in source_keywords.items():

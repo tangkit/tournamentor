@@ -7,7 +7,6 @@ from ..agents.smoothcomp_agent import SmoothcompAgent
 from ..agents.ibjjf_agent import IBJJFAgent
 from ..agents.asjjf_agent import ASJJFAgent
 from ..agents.naga_agent import NAGAAgent
-from ..agents.grappling_industries_agent import GrapplingIndustriesAgent
 
 
 class TournamentService:
@@ -19,7 +18,6 @@ class TournamentService:
             TournamentSource.IBJJF: IBJJFAgent(),
             TournamentSource.ASJJF: ASJJFAgent(),
             TournamentSource.NAGA: NAGAAgent(),
-            TournamentSource.GRAPPLING_INDUSTRIES: GrapplingIndustriesAgent(),
         }
 
     async def search_tournaments(
