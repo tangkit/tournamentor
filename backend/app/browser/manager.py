@@ -183,6 +183,7 @@ class BrowserManager:
         session = self._client.Session(
             open_viewer=open_viewer,
             timeout_minutes=10,
+            browser_type='firefox',  # Required for solve_captchas
             solve_captchas=True,
         )
 
