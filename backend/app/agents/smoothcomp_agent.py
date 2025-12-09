@@ -236,13 +236,23 @@ class SmoothcompAgent(BaseTournamentAgent):
         tournaments = []
 
         try:
-            print(f"[Smoothcomp] Navigating to {self.events_url}")
-            await page.goto(self.events_url, wait_until='domcontentloaded')
+            # Build URL with country filter if location specified
+            url = self.events_url
+            if location:
+                # Try URL-based filtering first (more reliable than dropdown)
+                # Smoothcomp may use country codes or names in URL params
+                country_param = location.lower().replace(' ', '-')
+                url = f"{self.events_url}?country={country_param}"
+                print(f"[Smoothcomp] Trying URL-based filter: {url}")
+
+            print(f"[Smoothcomp] Navigating to {url}")
+            await page.goto(url, wait_until='domcontentloaded')
             await page.wait_for_timeout(3000)
             print(f"[Smoothcomp] Page loaded, current URL: {page.url}")
 
-            # If location specified, try to use Smoothcomp's country filter
-            if location:
+            # If URL filtering didn't work, try the dropdown
+            if location and 'country=' not in page.url:
+                print("[Smoothcomp] URL filter not applied, trying dropdown...")
                 await self._apply_country_filter(page, location)
 
             # Scroll to load more events
@@ -332,30 +342,50 @@ class SmoothcompAgent(BaseTournamentAgent):
             if not name:
                 return None
 
-            # Extract location - look for address with country
+            # Extract location - look for structured location data
             location = "TBD"
-            # Look for text after "Location" header that contains address
-            loc_match = re.search(r'Petaling Jaya[^,]*,\s*([^,]+,\s*)?Malaysia', page_text, re.IGNORECASE)
-            if loc_match:
-                location = loc_match.group(0)
-            else:
-                # Generic pattern: City, State/Province, Country
-                loc_match = re.search(r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),?\s*(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)?,?\s*(Malaysia|Singapore|Indonesia|Thailand|Philippines|Australia|Japan|USA|India|Hong Kong|South Korea|Kazakhstan|United Arab Emirates|Uzbekistan)', page_text)
-                if loc_match:
-                    location = loc_match.group(0).strip()
 
-            # If still no location, look for "Malaysia" and nearby text
+            # First, look for location in structured HTML elements
+            # Smoothcomp often has location in specific sections
+            location_selectors = [
+                '[class*="location"]',
+                '[class*="venue"]',
+                '[class*="address"]',
+                'address',
+            ]
+            for sel in location_selectors:
+                loc_elem = soup.select_one(sel)
+                if loc_elem:
+                    loc_text = loc_elem.get_text(separator=', ', strip=True)
+                    # Filter out nav/menu text
+                    if loc_text and len(loc_text) < 200 and 'Smoothcomp' not in loc_text and 'Contact' not in loc_text:
+                        location = loc_text
+                        print(f"[Smoothcomp] Found location from element {sel}: '{location[:50]}...'")
+                        break
+
+            # If no structured location, try regex on page text after "Location" heading
             if location == "TBD":
-                countries = ['Malaysia', 'Singapore', 'Indonesia', 'Thailand', 'Philippines', 'Australia', 'Japan', 'USA', 'India', 'Hong Kong']
+                # Look for text after "Location" header
+                loc_match = re.search(r'Location\s+([A-Z][^,]+(?:,\s*[A-Z][^,]+){0,3})', page_text)
+                if loc_match:
+                    location = loc_match.group(1).strip()[:100]  # Limit length
+                    print(f"[Smoothcomp] Found location from 'Location' header: '{location}'")
+
+            # Try to find City, Country pattern
+            if location == "TBD":
+                countries = ['Malaysia', 'Singapore', 'Indonesia', 'Thailand', 'Philippines', 'Australia', 'Japan', 'USA', 'United States', 'India', 'Hong Kong', 'South Korea', 'United Kingdom', 'UK', 'Canada', 'New Zealand', 'Brazil']
                 for country in countries:
                     if country.lower() in page_text.lower():
-                        # Find context around country name
-                        match = re.search(rf'([A-Z][a-z]+(?:[\s,]+[A-Z][a-z]+){{0,3}}[\s,]+){country}', page_text, re.IGNORECASE)
+                        # Find city before country name
+                        pattern = rf'([A-Z][a-zA-Z\s]+(?:,\s*[A-Z][a-zA-Z\s]+)?),?\s*{country}'
+                        match = re.search(pattern, page_text)
                         if match:
-                            location = match.group(0).strip()
+                            location = f"{match.group(1).strip()}, {country}"
+                            print(f"[Smoothcomp] Found location from country pattern: '{location}'")
                             break
                         else:
                             location = country
+                            print(f"[Smoothcomp] Using just country: '{location}'")
 
             # Extract organizer - look for "Organizer & merchant" section
             organizer = None
