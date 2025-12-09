@@ -1,6 +1,6 @@
 # Tournamentor
 
-AI-powered BJJ and Judo tournament aggregator with a chat-style interface and Playwright-based web scraping.
+AI-powered BJJ and Judo tournament aggregator with a chat-style interface and Notte AI-based web scraping.
 
 ## Features
 
@@ -11,7 +11,7 @@ AI-powered BJJ and Judo tournament aggregator with a chat-style interface and Pl
   - ASJJF (requires login)
   - NAGA (public)
   - Grappling Industries (public)
-- **Playwright-Based Scraping**: Real browser automation for reliable data extraction
+- **Notte AI Scraping**: Cloud-based browser automation with AI-powered interactions
 - **Session Persistence**: Login sessions are saved for faster subsequent scrapes
 - **Smart Filtering**: Filter by location, date, source, and more
 - **Sortable Table**: Sort tournaments by any column
@@ -22,7 +22,7 @@ AI-powered BJJ and Judo tournament aggregator with a chat-style interface and Pl
 
 ### Backend (Python/FastAPI)
 - FastAPI for REST API
-- **Playwright** for browser automation and web scraping
+- **Notte AI** for cloud-based browser automation and web scraping
 - **BeautifulSoup** for HTML parsing
 - OpenAI for chat functionality
 - Async tournament aggregation from multiple sources
@@ -53,9 +53,6 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Install Playwright browsers
-playwright install chromium
-
 # Set environment variables
 cp .env.example .env
 # Edit .env with your credentials
@@ -66,6 +63,10 @@ cp .env.example .env
 Edit `.env` with your credentials:
 
 ```env
+# Notte AI API Key (required for browser automation)
+# Get your key from https://console.notte.cc/
+NOTTE_API_KEY=your_notte_api_key_here
+
 # OpenAI API Key (for chat functionality)
 OPENAI_API_KEY=your_openai_api_key_here
 
@@ -196,12 +197,11 @@ The app works without any credentials - it will use mock data for all sources th
 
 ## Troubleshooting
 
-### Browser Issues
+### Notte API Issues
 
-```bash
-# Reinstall Playwright browsers
-playwright install chromium --force
-```
+- Ensure `NOTTE_API_KEY` is set in your `.env` file
+- Check your Notte plan limits (free plan: 1 concurrent session)
+- Visit https://console.notte.cc/ to monitor your usage
 
 ### Login Failures
 

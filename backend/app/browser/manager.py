@@ -5,7 +5,7 @@ from notte_sdk import NotteClient
 
 
 class NotteSession:
-    """Wrapper around Notte session providing Playwright-like interface."""
+    """Wrapper around Notte session for page interactions."""
 
     def __init__(self, session):
         self._session = session
@@ -151,10 +151,7 @@ class NotteContext:
 
 
 class BrowserManager:
-    """
-    Manages Notte browser sessions for web scraping.
-    Provides Playwright-compatible interface for easy migration.
-    """
+    """Manages Notte AI browser sessions for web scraping."""
 
     _instance: Optional['BrowserManager'] = None
     _client: Optional[NotteClient] = None
@@ -200,7 +197,8 @@ class BrowserManager:
         session = self._client.Session(
             open_viewer=open_viewer,
             timeout_minutes=10,
-            browser_type='chrome-nightly',  # Required for solve_captchas (options: firefox, chrome-nightly)
+            browser_type='chrome-nightly',  # Required for solve_captchas
+            proxies=True,  # Required when using chrome-nightly with solve_captchas
             solve_captchas=True,
         )
 
