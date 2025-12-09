@@ -292,11 +292,17 @@ class SmoothcompAgent(BaseTournamentAgent):
             # If no date found, search in text for date pattern
             if not date_str:
                 all_text = element.get_text(strip=True)
-                # Look for "2026 January 10" or similar patterns
+                # Look for "2026 January 10" or "2026 January 10 - 11" patterns
                 import re
-                date_match = re.search(r'(\d{4}\s+[A-Za-z]+\s+\d{1,2})', all_text)
+                # Match date with optional range (e.g., "2026 January 10 - 11")
+                date_match = re.search(r'(\d{4}\s+[A-Za-z]+\s+\d{1,2})(?:\s*-\s*\d{1,2})?', all_text)
                 if date_match:
-                    date_str = date_match.group(1)
+                    date_str = date_match.group(1)  # Just get the start date
+
+            # Clean date string - remove range part if present (e.g., "10 - 11" -> "10")
+            if date_str:
+                date_str = re.sub(r'\s*-\s*\d+.*$', '', date_str)
+                print(f"[Smoothcomp] Raw date string: '{date_str}'")
 
             date = self._parse_date(date_str) if date_str else "TBD"
 
