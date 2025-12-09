@@ -21,7 +21,7 @@ class IBJJFAgent(BaseTournamentAgent):
 
     @property
     def events_url(self) -> str:
-        return "https://ibjjf.com/events"
+        return "https://ibjjf.com/events/championships"
 
     @property
     def login_url(self) -> str:
@@ -150,80 +150,232 @@ class IBJJFAgent(BaseTournamentAgent):
             return False
 
     async def _scrape_events_page(self, page: Page, location: Optional[str] = None) -> List[Tournament]:
-        """Scrape tournaments from IBJJF events page.
+        """Scrape tournaments from IBJJF championships page.
 
         Location can be a single country or comma-separated list (e.g., "Malaysia,Taiwan")
+        Uses the "Search By" bar to search for each country.
         """
         tournaments = []
+        seen_ids = set()
 
-        # Parse comma-separated countries for filtering
+        # Parse comma-separated countries for searching
         target_countries = []
         if location:
-            target_countries = [c.strip().lower() for c in location.split(',') if c.strip()]
+            target_countries = [c.strip() for c in location.split(',') if c.strip()]
 
         try:
+            print(f"[IBJJF] Navigating to {self.events_url}")
             await page.goto(self.events_url, wait_until='domcontentloaded')
             await page.wait_for_timeout(3000)
+            print(f"[IBJJF] Page loaded, current URL: {page.url}")
 
+            # If we have target countries, search for each one
+            if target_countries:
+                for country in target_countries:
+                    print(f"[IBJJF] Searching for country: {country}")
+
+                    # Find and use the search bar
+                    search_selectors = [
+                        'input[type="text"]',
+                        'input[type="search"]',
+                        'input[placeholder*="search" i]',
+                        'input[placeholder*="Search" i]',
+                        '.search-input',
+                        '#search',
+                    ]
+
+                    search_input = None
+                    for selector in search_selectors:
+                        try:
+                            elem = await page.query_selector(selector)
+                            if elem:
+                                search_input = elem
+                                print(f"[IBJJF] Found search input with selector: {selector}")
+                                break
+                        except Exception:
+                            continue
+
+                    if search_input:
+                        # Clear and type country name
+                        await search_input.click()
+                        await page.wait_for_timeout(300)
+                        await search_input.fill('')  # Clear existing text
+                        await page.keyboard.type(country, delay=50)
+                        print(f"[IBJJF] Typed '{country}' in search bar")
+                        await page.wait_for_timeout(2000)  # Wait for results to filter
+
+                        # Parse events from current view
+                        country_tournaments = await self._parse_events_from_page(page, country)
+                        for t in country_tournaments:
+                            if t.id not in seen_ids:
+                                seen_ids.add(t.id)
+                                tournaments.append(t)
+                                print(f"[IBJJF] Added: {t.name[:40]}... ({t.location})")
+
+                        # Clear search for next country
+                        await search_input.fill('')
+                        await page.wait_for_timeout(1000)
+                    else:
+                        print(f"[IBJJF] Could not find search input, scraping all events")
+                        all_tournaments = await self._parse_events_from_page(page, country)
+                        # Filter by country name in location/name
+                        for t in all_tournaments:
+                            if t.id not in seen_ids:
+                                t_text = f"{t.name} {t.location}".lower()
+                                if country.lower() in t_text:
+                                    seen_ids.add(t.id)
+                                    tournaments.append(t)
+            else:
+                # No location filter - scrape all events
+                print(f"[IBJJF] No location filter, scraping all events")
+                tournaments = await self._parse_events_from_page(page, None)
+
+            print(f"[IBJJF] Successfully scraped {len(tournaments)} tournaments")
+
+        except Exception as e:
+            print(f"[IBJJF] Error scraping events: {e}")
+            import traceback
+            traceback.print_exc()
+
+        return tournaments
+
+    async def _parse_events_from_page(self, page: Page, target_country: Optional[str] = None) -> List[Tournament]:
+        """Parse event cards from the current page view."""
+        tournaments = []
+
+        try:
             # Scroll to load more events
-            for _ in range(3):
+            for _ in range(2):
                 await page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-                await page.wait_for_timeout(1500)
+                await page.wait_for_timeout(1000)
 
             content = await page.content()
             soup = BeautifulSoup(content, 'lxml')
 
-            # IBJJF typically displays events in cards or list items
-            event_selectors = [
-                '.event-card',
-                '.event-item',
-                '.tournament-card',
-                '[class*="event"]',
-                'article',
-            ]
+            # IBJJF shows event cards with images, dates, and locations
+            # Look for card containers - they typically link to /events/championships/XXX
+            event_links = soup.select('a[href*="/events/championships/"]')
 
-            events = []
-            for selector in event_selectors:
-                events = soup.select(selector)
-                if events:
-                    break
+            seen_hrefs = set()
+            for link in event_links:
+                href = link.get('href', '')
+                if href in seen_hrefs:
+                    continue
+                seen_hrefs.add(href)
 
-            # Look for event links if no containers found
-            if not events:
-                event_links = soup.select('a[href*="/events/"]')
-                for link in event_links:
-                    parent = link.find_parent(['div', 'article', 'li', 'section'])
-                    if parent and parent not in events:
-                        events.append(parent)
+                # Find the card container (parent element with date and location info)
+                card = link.find_parent(['div', 'article', 'section'])
+                if not card:
+                    card = link
 
-            for event in events[:50]:
                 try:
-                    tournament = self._parse_event_element(event)
+                    tournament = self._parse_event_card(card, href, target_country)
                     if tournament:
-                        # Filter by target countries if specified
-                        if target_countries:
-                            tournament_loc = tournament.location.lower() if tournament.location else ""
-                            tournament_city = tournament.city.lower() if tournament.city else ""
-                            tournament_country = tournament.country.lower() if tournament.country else ""
-
-                            # Check if ANY target country matches
-                            matches = any(
-                                country in tournament_loc or
-                                country in tournament_city or
-                                country in tournament_country
-                                for country in target_countries
-                            )
-                            if not matches:
-                                continue
                         tournaments.append(tournament)
                 except Exception as e:
-                    print(f"Error parsing IBJJF event: {e}")
+                    print(f"[IBJJF] Error parsing event card: {e}")
                     continue
 
         except Exception as e:
-            print(f"Error scraping IBJJF events: {e}")
+            print(f"[IBJJF] Error parsing events from page: {e}")
 
         return tournaments
+
+    def _parse_event_card(self, card, href: str, target_country: Optional[str] = None) -> Optional[Tournament]:
+        """Parse an IBJJF event card into a Tournament object.
+
+        Card structure typically includes:
+        - Event name/logo image with alt text
+        - Date range (e.g., "Dec 11 - Dec 13")
+        - Location (e.g., "Las Vegas - NV")
+        """
+        try:
+            card_text = card.get_text(separator=' ', strip=True)
+
+            # Extract event name from image alt text or link text
+            name = None
+            img = card.select_one('img')
+            if img and img.get('alt'):
+                name = img['alt'].strip()
+                # Clean up common suffixes
+                name = re.sub(r'\s*logo\s*$', '', name, flags=re.IGNORECASE)
+
+            if not name:
+                # Try to get from link text or title
+                link = card.select_one('a')
+                if link:
+                    name = link.get('title') or link.get_text(strip=True)
+
+            if not name or len(name) < 3:
+                # Try to extract from card text
+                # Look for championship names like "WORLD JIU-JITSU", "EUROPEAN JIU-JITSU", etc.
+                name_match = re.search(r'(WORLD|EUROPEAN|PAN|ASIAN|AMERICAN|KIDS|MASTERS)\s+[A-Z\s\-]+(?:CHAMPIONSHIP|OPEN)?', card_text, re.IGNORECASE)
+                if name_match:
+                    name = name_match.group(0).strip()
+
+            if not name:
+                return None
+
+            # Extract date - look for patterns like "Dec 11 - Dec 13" or "Jan 15* - Jan 24"
+            date_match = re.search(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})\*?\s*[-–]\s*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)?\s*(\d{1,2})', card_text, re.IGNORECASE)
+            if date_match:
+                start_month = date_match.group(1)
+                start_day = date_match.group(2)
+                # Assume current or next year for IBJJF events
+                year = datetime.now().year
+                # If month is before current month, use next year
+                month_map = {'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+                             'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12}
+                event_month = month_map.get(start_month.lower(), 1)
+                if event_month < datetime.now().month:
+                    year += 1
+                date = f"{year}-{event_month:02d}-{int(start_day):02d}"
+            else:
+                date = "TBD"
+
+            # Extract location - look for pattern like "Las Vegas - NV" or "City - State/Country"
+            # Location usually comes after the date
+            location = "TBD"
+            loc_match = re.search(r'([A-Za-z\s]+)\s*[-–]\s*([A-Za-z]{2,})', card_text)
+            if loc_match:
+                city = loc_match.group(1).strip()
+                state_country = loc_match.group(2).strip()
+                # Filter out date-like matches
+                if city.lower() not in ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']:
+                    location = f"{city}, {state_country}"
+
+            # Build full URL
+            if href.startswith('/'):
+                registration_link = self.base_url + href
+            else:
+                registration_link = href
+
+            # Parse location components
+            city, state, country = self._parse_location(location)
+
+            # If target_country was searched, use it as country if we couldn't parse one
+            if target_country and not country:
+                country = target_country
+
+            return Tournament(
+                id=self._generate_id(name, date),
+                name=name,
+                date=date,
+                location=location,
+                city=city,
+                state=state,
+                country=country,
+                description=None,
+                organizer="IBJJF",
+                fees=None,
+                registration_link=registration_link,
+                source=self.source,
+                sport="BJJ",
+            )
+
+        except Exception as e:
+            print(f"[IBJJF] Error parsing event card: {e}")
+            return None
 
     def _parse_event_element(self, element) -> Optional[Tournament]:
         """Parse a BeautifulSoup element into a Tournament object."""
