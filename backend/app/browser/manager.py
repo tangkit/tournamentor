@@ -22,10 +22,21 @@ class NotteSession:
         return self._session
 
     async def goto(self, url: str, wait_until: str = 'domcontentloaded') -> None:
-        """Navigate to a URL."""
+        """Navigate to a URL using available Notte method."""
         print(f"[Notte] goto: Navigating to {url}")
         try:
-            self._session.goto(url)
+            # Try different navigation methods that Notte SDK might provide
+            if hasattr(self._session, 'goto'):
+                self._session.goto(url)
+            elif hasattr(self._session, 'navigate'):
+                self._session.navigate(url)
+            elif hasattr(self._session, 'act'):
+                # Use natural language action as fallback
+                self._session.act(f"navigate to {url}")
+            else:
+                # List available methods for debugging
+                methods = [m for m in dir(self._session) if not m.startswith('_')]
+                raise AttributeError(f"No navigation method found. Available: {methods}")
             self._current_url = url
             print(f"[Notte] goto: Navigation completed")
         except Exception as e:
@@ -247,13 +258,10 @@ class BrowserManager:
             await self._initialize()
 
         # Create Notte session
-        # Note: Notte cloud requires headless=True, but open_viewer streams the session
-        # open_viewer controlled by HEADLESS env var (HEADLESS=false enables viewer)
-        open_viewer = not self.headless
-        print(f"[BrowserManager] Creating session (headless=True, open_viewer={open_viewer})...")
+        # Note: open_viewer causes debug endpoint errors, disabled for now
+        print(f"[BrowserManager] Creating session (headless=True)...")
         session = self._client.Session(
             headless=True,  # Notte cloud only supports headless mode
-            open_viewer=open_viewer,  # Stream view of headless browser
             timeout_minutes=15,
             browser_type='chrome-nightly',  # Required for solve_captchas
             proxies=True,  # Required when using chrome-nightly with solve_captchas
@@ -266,6 +274,11 @@ class BrowserManager:
             print(f"[BrowserManager] Starting session...")
             session.__enter__()
             print(f"[BrowserManager] Session started successfully (ID: {getattr(session, 'session_id', 'unknown')})")
+
+            # Debug: Show available methods on the session object
+            session_methods = [m for m in dir(session) if not m.startswith('_')]
+            print(f"[BrowserManager] Session type: {type(session).__name__}")
+            print(f"[BrowserManager] Session methods: {session_methods}")
 
             # Load cookies if storage state exists
             if storage_state and os.path.exists(storage_state):
