@@ -192,39 +192,74 @@ class BrowserManager:
         if self._client is None:
             await self._initialize()
 
-        # Create Notte session
-        open_viewer = not self.headless
+        # Create Notte session - use headless=True to avoid viewer issues
+        print(f"[BrowserManager] Creating session (headless={self.headless})...")
         session = self._client.Session(
-            open_viewer=open_viewer,
-            timeout_minutes=10,
+            headless=self.headless,
+            timeout_minutes=15,
             browser_type='chrome-nightly',  # Required for solve_captchas
             proxies=True,  # Required when using chrome-nightly with solve_captchas
             solve_captchas=True,
         )
 
-        # Start the session
-        session.__enter__()
-
-        # Load cookies if storage state exists
-        if storage_state and os.path.exists(storage_state):
-            try:
-                import json
-                with open(storage_state, 'r') as f:
-                    state = json.load(f)
-                    if 'cookies' in state:
-                        session.set_cookies(cookies=state['cookies'])
-            except Exception as e:
-                print(f"Could not load storage state: {e}")
-
-        context = NotteContext(session)
-
+        session_closed = False
         try:
+            # Start the session using context manager
+            print(f"[BrowserManager] Starting session...")
+            session.__enter__()
+            print(f"[BrowserManager] Session started successfully (ID: {getattr(session, 'session_id', 'unknown')})")
+
+            # Load cookies if storage state exists
+            if storage_state and os.path.exists(storage_state):
+                try:
+                    import json
+                    with open(storage_state, 'r') as f:
+                        state = json.load(f)
+                        if 'cookies' in state:
+                            session.set_cookies(cookies=state['cookies'])
+                            print(f"[BrowserManager] Loaded cookies from storage state")
+                except Exception as e:
+                    print(f"[BrowserManager] Could not load storage state: {e}")
+
+            context = NotteContext(session)
             yield context, session
+
+        except Exception as e:
+            print(f"[BrowserManager] Session error: {e}")
+            # Try to close the session even if it failed to start fully
+            self._force_close_session(session)
+            session_closed = True
+            raise
+
         finally:
-            try:
-                session.__exit__(None, None, None)
-            except Exception as e:
-                print(f"Error closing session: {e}")
+            # Close the session if not already closed
+            if not session_closed:
+                self._force_close_session(session)
+
+    def _force_close_session(self, session):
+        """Force close a session, trying multiple methods."""
+        session_id = getattr(session, 'session_id', None)
+        if not session_id:
+            return
+
+        print(f"[BrowserManager] Closing session {session_id}...")
+
+        # Try normal exit first
+        try:
+            session.__exit__(None, None, None)
+            print(f"[BrowserManager] Session {session_id} closed via __exit__")
+            return
+        except Exception as e:
+            print(f"[BrowserManager] __exit__ failed: {e}")
+
+        # Try stopping via client
+        try:
+            if self._client:
+                self._client.stop(session_id=session_id)
+                print(f"[BrowserManager] Session {session_id} force stopped via client.stop()")
+                return
+        except Exception as e:
+            print(f"[BrowserManager] client.stop() failed: {e}")
 
     @asynccontextmanager
     async def new_page(self, context_and_session=None):
