@@ -23,35 +23,89 @@ class NotteSession:
 
     async def goto(self, url: str, wait_until: str = 'domcontentloaded') -> None:
         """Navigate to a URL."""
-        self._session.goto(url)
-        self._current_url = url
+        print(f"[Notte] goto: Navigating to {url}")
+        try:
+            self._session.goto(url)
+            self._current_url = url
+            print(f"[Notte] goto: Navigation completed")
+        except Exception as e:
+            print(f"[Notte] goto: Navigation failed: {e}")
+            raise
 
     async def action(self, instruction: str) -> Any:
         """Execute a natural language action on the page."""
-        print(f"[Notte] Executing action: {instruction}")
+        print(f"[Notte] action: Executing '{instruction}'")
         try:
             result = self._session.act(instruction)
-            print(f"[Notte] Action completed successfully")
+            print(f"[Notte] action: Completed successfully")
+            if result:
+                print(f"[Notte] action: Result type={type(result).__name__}")
             return result
         except Exception as e:
-            print(f"[Notte] Action failed: {e}")
+            print(f"[Notte] action: FAILED - {e}")
+            import traceback
+            traceback.print_exc()
             raise
 
     async def content(self) -> str:
-        """Get page HTML content."""
-        result = self._session.scrape(scrape_links=True, only_main_content=False)
-        return result.markdown if hasattr(result, 'markdown') else str(result)
+        """Get page content (HTML or markdown depending on what's available)."""
+        print(f"[Notte] content: Fetching page content...")
+        try:
+            result = self._session.scrape(scrape_links=True, only_main_content=False)
+            print(f"[Notte] content: Scrape result type={type(result).__name__}")
+
+            # Debug: Show all available attributes
+            if hasattr(result, '__dict__'):
+                print(f"[Notte] content: Result attributes: {list(result.__dict__.keys())}")
+            else:
+                print(f"[Notte] content: Result dir: {[a for a in dir(result) if not a.startswith('_')]}")
+
+            # Try to get HTML first, fall back to markdown
+            if hasattr(result, 'html') and result.html:
+                print(f"[Notte] content: Found HTML (length={len(result.html)})")
+                return result.html
+            elif hasattr(result, 'page_html') and result.page_html:
+                print(f"[Notte] content: Found page_html (length={len(result.page_html)})")
+                return result.page_html
+            elif hasattr(result, 'raw_html') and result.raw_html:
+                print(f"[Notte] content: Found raw_html (length={len(result.raw_html)})")
+                return result.raw_html
+            elif hasattr(result, 'markdown') and result.markdown:
+                content = result.markdown
+                print(f"[Notte] content: Found markdown (length={len(content)})")
+                # Show first 500 chars for debugging
+                print(f"[Notte] content: Preview: {content[:500] if len(content) > 500 else content}")
+                return content
+            elif hasattr(result, 'text') and result.text:
+                content = result.text
+                print(f"[Notte] content: Found text (length={len(content)})")
+                return content
+            else:
+                content = str(result)
+                print(f"[Notte] content: Using str(result) (length={len(content)})")
+                print(f"[Notte] content: Preview: {content[:500] if len(content) > 500 else content}")
+                return content
+        except Exception as e:
+            print(f"[Notte] content: FAILED - {e}")
+            import traceback
+            traceback.print_exc()
+            return ""
 
     async def wait_for_timeout(self, timeout: int) -> None:
         """Wait for specified milliseconds."""
         import asyncio
+        print(f"[Notte] wait: {timeout}ms")
         await asyncio.sleep(timeout / 1000)
 
     async def evaluate(self, script: str) -> Any:
         """Execute JavaScript - for scrolling, use Notte scroll_down action."""
         if 'scrollTo' in script or 'scroll' in script.lower():
-            print(f"[Notte] Executing scroll_down action")
-            self._session.execute({"type": "scroll_down"})
+            print(f"[Notte] evaluate: Executing scroll_down")
+            try:
+                self._session.execute({"type": "scroll_down"})
+                print(f"[Notte] evaluate: scroll_down completed")
+            except Exception as e:
+                print(f"[Notte] evaluate: scroll_down FAILED - {e}")
         return None
 
     async def query_selector(self, selector: str) -> Optional['NotteElement']:
@@ -192,10 +246,13 @@ class BrowserManager:
         if self._client is None:
             await self._initialize()
 
-        # Create Notte session - use headless=True to avoid viewer issues
-        print(f"[BrowserManager] Creating session (headless={self.headless})...")
+        # Create Notte session
+        # open_viewer=True opens a live browser view for debugging
+        open_viewer = not self.headless
+        print(f"[BrowserManager] Creating session (headless={self.headless}, open_viewer={open_viewer})...")
         session = self._client.Session(
             headless=self.headless,
+            open_viewer=open_viewer,
             timeout_minutes=15,
             browser_type='chrome-nightly',  # Required for solve_captchas
             proxies=True,  # Required when using chrome-nightly with solve_captchas

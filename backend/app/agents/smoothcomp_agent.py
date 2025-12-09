@@ -247,17 +247,61 @@ class SmoothcompAgent(BaseTournamentAgent):
             # Scroll to load more events
             print("[Smoothcomp] Scrolling to load more events...")
             for i in range(3):
+                print(f"[Smoothcomp] Scroll {i+1}/3...")
                 await page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
                 await page.wait_for_timeout(1500)
 
             # Get page content and find event links
+            print("[Smoothcomp] Getting page content...")
             content = await page.content()
-            soup = BeautifulSoup(content, 'lxml')
+            print(f"[Smoothcomp] Content length: {len(content)} chars")
+            print(f"[Smoothcomp] Content preview: {content[:300]}...")
 
-            # Find all event cards/links and pre-filter by location shown on card
-            event_links = soup.select('a[href*="/en/event/"]')
+            # Check if content looks like HTML or Markdown
+            is_html = content.strip().startswith('<') or '<html' in content.lower() or '<body' in content.lower()
+            print(f"[Smoothcomp] Content appears to be HTML: {is_html}")
+
             unique_urls = []
             seen = set()
+
+            if is_html:
+                # Parse as HTML with BeautifulSoup
+                print("[Smoothcomp] Parsing as HTML...")
+                soup = BeautifulSoup(content, 'lxml')
+
+                # Find all event cards/links and pre-filter by location shown on card
+                event_links = soup.select('a[href*="/en/event/"]')
+                print(f"[Smoothcomp] Found {len(event_links)} event links in HTML")
+            else:
+                # Content is markdown - extract links using regex
+                print("[Smoothcomp] Content is markdown, extracting links with regex...")
+                # Look for markdown links like [text](/en/event/123) or URLs containing /en/event/
+                link_pattern = r'\[([^\]]*)\]\(([^)]*?/en/event/[^)]+)\)|https?://[^\s\)]*?/en/event/[^\s\)]*'
+                matches = re.findall(link_pattern, content)
+                print(f"[Smoothcomp] Regex found {len(matches)} potential event links")
+
+                # Also try direct URL pattern
+                url_pattern = r'smoothcomp\.com/en/event/(\d+)'
+                event_ids = re.findall(url_pattern, content)
+                print(f"[Smoothcomp] Found {len(event_ids)} event IDs in content")
+
+                # Build URLs from event IDs
+                for event_id in event_ids:
+                    if event_id not in seen:
+                        seen.add(event_id)
+                        url = f"{self.base_url}/en/event/{event_id}"
+                        unique_urls.append(url)
+                        print(f"[Smoothcomp] Added event URL: {url}")
+
+                # If we have URLs, skip the HTML parsing
+                if unique_urls:
+                    print(f"[Smoothcomp] Using {len(unique_urls)} URLs from regex")
+                    event_links = []  # Skip HTML parsing
+                else:
+                    # Try parsing markdown as HTML anyway (might work for some content)
+                    soup = BeautifulSoup(content, 'lxml')
+                    event_links = soup.select('a[href*="/en/event/"]')
+                    print(f"[Smoothcomp] Fallback HTML parse found {len(event_links)} links")
 
             for link in event_links:
                 href = link.get('href', '')
