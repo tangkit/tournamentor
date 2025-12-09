@@ -190,7 +190,6 @@ async def get_sources():
             {"id": "ibjjf", "name": "IBJJF", "url": "https://ibjjf.com", "requires_login": True},
             {"id": "asjjf", "name": "ASJJF", "url": "https://www.asjjf.org", "requires_login": True},
             {"id": "naga", "name": "NAGA", "url": "https://www.nagafighter.com", "requires_login": False},
-            {"id": "grappling_industries", "name": "Grappling Industries", "url": "https://grapplingindustries.com", "requires_login": False},
         ]
     }
 
@@ -199,3 +198,8 @@ async def get_sources():
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "scraping_engine": "playwright"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
