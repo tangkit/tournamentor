@@ -1,7 +1,6 @@
 import re
 from typing import List, Optional
 from datetime import datetime, timedelta
-import random
 from playwright.async_api import Page, BrowserContext
 from bs4 import BeautifulSoup
 
@@ -201,85 +200,5 @@ class NAGAAgent(BaseTournamentAgent):
         return city, state, country
 
     def _get_mock_data(self) -> List[Tournament]:
-        """Return realistic mock data for NAGA tournaments."""
-        base_date = datetime.now()
-
-        mock_tournaments = [
-            {
-                "name": "NAGA Philadelphia",
-                "city": "Philadelphia",
-                "state": "PA",
-                "country": "USA",
-                "fees": "$75 - $95",
-                "description": "Gi, No-Gi, and MMA grappling divisions. Kids to adults.",
-                "days_offset": 18
-            },
-            {
-                "name": "NAGA Chicago",
-                "city": "Chicago",
-                "state": "IL",
-                "country": "USA",
-                "fees": "$75 - $95",
-                "description": "Midwest championship. All experience levels.",
-                "days_offset": 32
-            },
-            {
-                "name": "NAGA Las Vegas",
-                "city": "Las Vegas",
-                "state": "NV",
-                "country": "USA",
-                "fees": "$85 - $105",
-                "description": "Vegas showdown. Cash prizes in expert divisions.",
-                "days_offset": 47
-            },
-            {
-                "name": "NAGA New Jersey",
-                "city": "Newark",
-                "state": "NJ",
-                "country": "USA",
-                "fees": "$75 - $95",
-                "description": "East coast tournament. Large competitor turnout expected.",
-                "days_offset": 25
-            },
-            {
-                "name": "NAGA Boston",
-                "city": "Boston",
-                "state": "MA",
-                "country": "USA",
-                "fees": "$75 - $95",
-                "description": "New England championship event.",
-                "days_offset": 60
-            },
-            {
-                "name": "NAGA Phoenix",
-                "city": "Phoenix",
-                "state": "AZ",
-                "country": "USA",
-                "fees": "$75 - $95",
-                "description": "Southwest regional. Desert grappling championship.",
-                "days_offset": 75
-            },
-        ]
-
-        tournaments = []
-        for t in mock_tournaments:
-            date = base_date + timedelta(days=t["days_offset"])
-            tournament = Tournament(
-                id=self._generate_id(t["name"], date.strftime("%Y-%m-%d")),
-                name=t["name"],
-                date=date.strftime("%Y-%m-%d"),
-                location=f"{t['city']}, {t['state']}, {t['country']}",
-                city=t["city"],
-                state=t["state"],
-                country=t["country"],
-                description=t["description"],
-                organizer="NAGA",
-                fees=t["fees"],
-                registration_link=f"https://www.nagafighter.com/events/{self._generate_id(t['name'], '')}",
-                source=self.source,
-                sport="Grappling/BJJ",
-                registration_deadline=(date - timedelta(days=5)).strftime("%Y-%m-%d"),
-            )
-            tournaments.append(tournament)
-
-        return tournaments
+        """Return empty list - no mock data."""
+        return []

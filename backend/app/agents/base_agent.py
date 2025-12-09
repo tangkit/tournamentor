@@ -86,8 +86,8 @@ class BaseTournamentAgent(ABC):
         print(f"[{self.source.value}] Starting scrape, requires_login={self.requires_login}")
 
         if self.requires_login and not self.has_credentials():
-            print(f"[{self.source.value}] No credentials configured, using mock data")
-            return self._get_mock_data()
+            print(f"[{self.source.value}] No credentials configured, skipping")
+            return []
 
         try:
             print(f"[{self.source.value}] Getting browser manager...")
@@ -114,7 +114,7 @@ class BaseTournamentAgent(ABC):
                                 print(f"[{self.source.value}] ✓ LOGIN SUCCESSFUL - Authenticated with {email}")
                             else:
                                 print(f"[{self.source.value}] ✗ LOGIN FAILED - Could not authenticate with {email}")
-                                return self._get_mock_data()
+                                return []
                     else:
                         print(f"[{self.source.value}] No login required for this source")
 
@@ -124,16 +124,15 @@ class BaseTournamentAgent(ABC):
 
                     if tournaments:
                         print(f"[{self.source.value}] Found {len(tournaments)} tournaments")
-                        return tournaments
                     else:
-                        print(f"[{self.source.value}] No tournaments found, using mock data")
-                        return self._get_mock_data()
+                        print(f"[{self.source.value}] No tournaments found")
+                    return tournaments
 
         except Exception as e:
             print(f"[{self.source.value}] Error: {e}")
             import traceback
             traceback.print_exc()
-            return self._get_mock_data()
+            return []
 
     @abstractmethod
     async def _check_logged_in(self, page: Page) -> bool:

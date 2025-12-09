@@ -1,7 +1,6 @@
 import re
 from typing import List, Optional
 from datetime import datetime, timedelta
-import random
 from playwright.async_api import Page, BrowserContext
 from bs4 import BeautifulSoup
 
@@ -292,96 +291,5 @@ class ASJJFAgent(BaseTournamentAgent):
         return city, country
 
     def _get_mock_data(self) -> List[Tournament]:
-        """Return realistic mock data for ASJJF tournaments."""
-        base_date = datetime.now()
-
-        mock_tournaments = [
-            {
-                "name": "ASJJF Tokyo International Open",
-                "city": "Tokyo",
-                "country": "Japan",
-                "fees": "¥12,000 - ¥18,000",
-                "description": "International open tournament in Tokyo. Gi and No-Gi divisions.",
-                "days_offset": 25
-            },
-            {
-                "name": "ASJJF Seoul Grand Slam",
-                "city": "Seoul",
-                "country": "South Korea",
-                "fees": "₩150,000 - ₩220,000",
-                "description": "Grand Slam event in Seoul. Top Asian competitors.",
-                "days_offset": 40
-            },
-            {
-                "name": "ASJJF Singapore Pro",
-                "city": "Singapore",
-                "country": "Singapore",
-                "fees": "SGD 120 - SGD 180",
-                "description": "Professional level competition. Cash prizes for black belts.",
-                "days_offset": 55
-            },
-            {
-                "name": "ASJJF Hong Kong Championship",
-                "city": "Hong Kong",
-                "country": "China",
-                "fees": "HKD 800 - HKD 1,200",
-                "description": "Hong Kong regional championship. All belt levels.",
-                "days_offset": 35
-            },
-            {
-                "name": "ASJJF Bangkok Open",
-                "city": "Bangkok",
-                "country": "Thailand",
-                "fees": "฿3,000 - ฿4,500",
-                "description": "Open tournament in Bangkok. Growing Thai BJJ scene.",
-                "days_offset": 65
-            },
-            {
-                "name": "ASJJF Manila International",
-                "city": "Manila",
-                "country": "Philippines",
-                "fees": "₱4,000 - ₱6,000",
-                "description": "International event in the Philippines. Southeast Asian focus.",
-                "days_offset": 80
-            },
-            {
-                "name": "ASJJF Asian Championship",
-                "city": "Osaka",
-                "country": "Japan",
-                "fees": "¥15,000 - ¥22,000",
-                "description": "Continental championship. Points towards Asian rankings.",
-                "days_offset": 100
-            },
-            {
-                "name": "ASJJF Kuala Lumpur Open",
-                "city": "Kuala Lumpur",
-                "country": "Malaysia",
-                "fees": "MYR 350 - MYR 500",
-                "description": "Malaysian open tournament. Beginners to advanced welcome.",
-                "days_offset": 45
-            },
-        ]
-
-        tournaments = []
-        for t in mock_tournaments:
-            date = base_date + timedelta(days=t["days_offset"])
-            end_date = date + timedelta(days=random.choice([0, 1, 2]))
-            tournament = Tournament(
-                id=self._generate_id(t["name"], date.strftime("%Y-%m-%d")),
-                name=t["name"],
-                date=date.strftime("%Y-%m-%d"),
-                end_date=end_date.strftime("%Y-%m-%d"),
-                location=f"{t['city']}, {t['country']}",
-                city=t["city"],
-                country=t["country"],
-                description=t["description"],
-                organizer="ASJJF",
-                fees=t["fees"],
-                registration_link=f"https://www.asjjf.org/events/{self._generate_id(t['name'], '')}",
-                source=self.source,
-                sport="BJJ/Judo",
-                registration_deadline=(date - timedelta(days=10)).strftime("%Y-%m-%d"),
-            )
-            tournaments.append(tournament)
-
-        return tournaments
+        """Return empty list - no mock data."""
+        return []
