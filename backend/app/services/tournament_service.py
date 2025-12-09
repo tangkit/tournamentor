@@ -51,22 +51,23 @@ class TournamentService:
             effective_location = ",".join(countries)
             print(f"[TournamentService] Using countries '{effective_location}' as location filter for agents")
 
-        # Run all agent scrapes concurrently
-        tasks = []
+        # Run agents sequentially (Notte free plan allows only 1 concurrent session)
+        all_tournaments = []
         for source in sources:
             if source in self.agents:
                 agent = self.agents[source]
-                tasks.append(agent.scrape_tournaments(effective_location))
-
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Combine all tournaments
-        all_tournaments = []
-        for result in results:
-            if isinstance(result, list):
-                all_tournaments.extend(result)
-            elif isinstance(result, Exception):
-                print(f"Agent error: {result}")
+                print(f"[TournamentService] Starting scrape for {source.value}...")
+                try:
+                    result = await agent.scrape_tournaments(effective_location)
+                    if isinstance(result, list):
+                        print(f"[TournamentService] {source.value}: Found {len(result)} tournaments")
+                        all_tournaments.extend(result)
+                    else:
+                        print(f"[TournamentService] {source.value}: No tournaments returned")
+                except Exception as e:
+                    print(f"[TournamentService] {source.value} error: {e}")
+                    import traceback
+                    traceback.print_exc()
 
         # Apply filters
         filtered = self._apply_filters(

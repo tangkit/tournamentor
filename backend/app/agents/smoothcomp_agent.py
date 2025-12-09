@@ -148,14 +148,17 @@ class SmoothcompAgent(BaseTournamentAgent):
     async def _handle_cookie_popup(self, page: NotteSession) -> None:
         """Handle the cookie consent popup if present."""
         try:
-            print("[Smoothcomp] Checking for cookie popup...")
+            print("[Smoothcomp] === HANDLING COOKIE POPUP ===")
+            print("[Smoothcomp] Waiting 2 seconds for page to settle...")
             await page.wait_for_timeout(2000)
-            # Use natural language to accept cookies
+            print("[Smoothcomp] Attempting to click Accept All cookies button...")
             await page.action("click on 'Accept All' or 'Accept all cookies' button if visible")
-            print("[Smoothcomp] Cookie popup handled")
+            print("[Smoothcomp] Cookie popup handled successfully")
             await page.wait_for_timeout(1000)
         except Exception as e:
-            print(f"[Smoothcomp] No cookie popup or error: {e}")
+            print(f"[Smoothcomp] Cookie popup handling failed or not present: {e}")
+            import traceback
+            traceback.print_exc()
 
     async def _apply_country_filter(self, page: NotteSession, location: str) -> bool:
         """Apply country filter on Smoothcomp events page using Notte natural language actions.
@@ -167,39 +170,49 @@ class SmoothcompAgent(BaseTournamentAgent):
             countries = [c.strip() for c in location.split(',') if c.strip()]
             print(f"[Smoothcomp] === APPLYING COUNTRY FILTER ===")
             print(f"[Smoothcomp] Countries to filter: {countries}")
+            print(f"[Smoothcomp] Total countries: {len(countries)}")
 
             # Wait for page to be fully loaded
+            print("[Smoothcomp] Waiting 2 seconds for filters to load...")
             await page.wait_for_timeout(2000)
 
             # Use natural language to interact with the country filter
             for i, country in enumerate(countries):
+                print(f"\n[Smoothcomp] --- Processing country {i+1}/{len(countries)}: '{country}' ---")
                 try:
                     # Click on the Countries input field
-                    print(f"[Smoothcomp] Clicking Countries input for '{country}'...")
+                    print(f"[Smoothcomp] Step 1: Clicking Countries filter input...")
                     await page.action("click on the Countries filter input field")
+                    print(f"[Smoothcomp] Step 1: Done, waiting 1 second...")
                     await page.wait_for_timeout(1000)
 
                     # Type the country name
-                    print(f"[Smoothcomp] Typing '{country}'...")
+                    print(f"[Smoothcomp] Step 2: Typing '{country}'...")
                     await page.action(f"type '{country}' in the Countries input field")
+                    print(f"[Smoothcomp] Step 2: Done, waiting 1.5 seconds for dropdown...")
                     await page.wait_for_timeout(1500)
 
                     # Select the country from dropdown
-                    print(f"[Smoothcomp] Selecting '{country}' from dropdown...")
+                    print(f"[Smoothcomp] Step 3: Selecting '{country}' from dropdown...")
                     await page.action(f"click on '{country}' in the dropdown list")
+                    print(f"[Smoothcomp] Step 3: Done, waiting 1 second...")
                     await page.wait_for_timeout(1000)
 
-                    print(f"[Smoothcomp] Added country: {country}")
+                    print(f"[Smoothcomp] Successfully added country: {country}")
 
                 except Exception as e:
-                    print(f"[Smoothcomp] Error adding country '{country}': {e}")
+                    print(f"[Smoothcomp] ERROR adding country '{country}': {e}")
+                    import traceback
+                    traceback.print_exc()
                     continue
 
-            print(f"[Smoothcomp] Country filter applied for: {countries}")
+            print(f"\n[Smoothcomp] Country filter completed for: {countries}")
             return True
 
         except Exception as e:
             print(f"[Smoothcomp] Country filter error: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     async def _scrape_events_page(self, page: NotteSession, location: Optional[str] = None) -> List[Tournament]:

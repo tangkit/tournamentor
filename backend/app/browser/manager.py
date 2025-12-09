@@ -29,8 +29,13 @@ class NotteSession:
     async def action(self, instruction: str) -> Any:
         """Execute a natural language action on the page."""
         print(f"[Notte] Executing action: {instruction}")
-        result = self._session.act(instruction)
-        return result
+        try:
+            result = self._session.act(instruction)
+            print(f"[Notte] Action completed successfully")
+            return result
+        except Exception as e:
+            print(f"[Notte] Action failed: {e}")
+            raise
 
     async def content(self) -> str:
         """Get page HTML content."""
@@ -43,9 +48,10 @@ class NotteSession:
         await asyncio.sleep(timeout / 1000)
 
     async def evaluate(self, script: str) -> Any:
-        """Execute JavaScript - for scrolling, use Notte action."""
+        """Execute JavaScript - for scrolling, use Notte scroll_down action."""
         if 'scrollTo' in script or 'scroll' in script.lower():
-            self._session.act("scroll down the page")
+            print(f"[Notte] Executing scroll_down action")
+            self._session.execute({"type": "scroll_down"})
         return None
 
     async def query_selector(self, selector: str) -> Optional['NotteElement']:
