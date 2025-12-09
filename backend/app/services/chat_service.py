@@ -180,7 +180,7 @@ Always be helpful, friendly, and knowledgeable about the BJJ/Judo competition sc
             return "I'm here to help you find BJJ and Judo tournaments. What are you looking for?", False
 
     def parse_search_intent(self, message: str) -> dict:
-        """Parse user message to extract search parameters including geography."""
+        """Parse user message to extract search parameters including geography and dates."""
         params = {
             "location": None,
             "countries": [],
@@ -235,7 +235,107 @@ Always be helpful, friendly, and knowledgeable about the BJJ/Judo competition sc
             if keyword in message_lower:
                 params["sources"].append(source)
 
+        # Extract dates from message
+        date_from, date_to = self._extract_dates(message_lower)
+        if date_from:
+            params["date_from"] = date_from
+        if date_to:
+            params["date_to"] = date_to
+
         return params
+
+    def _extract_dates(self, message: str) -> Tuple[Optional[str], Optional[str]]:
+        """Extract date range from message.
+
+        Returns tuple of (date_from, date_to) in YYYY-MM-DD format.
+        """
+        from datetime import datetime
+        import calendar
+
+        month_map = {
+            'jan': 1, 'january': 1,
+            'feb': 2, 'february': 2,
+            'mar': 3, 'march': 3,
+            'apr': 4, 'april': 4,
+            'may': 5,
+            'jun': 6, 'june': 6,
+            'jul': 7, 'july': 7,
+            'aug': 8, 'august': 8,
+            'sep': 9, 'sept': 9, 'september': 9,
+            'oct': 10, 'october': 10,
+            'nov': 11, 'november': 11,
+            'dec': 12, 'december': 12,
+        }
+
+        date_from = None
+        date_to = None
+
+        # Pattern: "in Jan 2026", "January 2026", "in jan 2026"
+        month_year_pattern = r'(?:in\s+)?(?:the\s+)?(?:month\s+of\s+)?(\w+)\s+(\d{4})'
+        match = re.search(month_year_pattern, message, re.IGNORECASE)
+        if match:
+            month_str = match.group(1).lower()
+            year_str = match.group(2)
+            if month_str in month_map:
+                month = month_map[month_str]
+                year = int(year_str)
+                # First day of month
+                date_from = f"{year}-{month:02d}-01"
+                # Last day of month
+                last_day = calendar.monthrange(year, month)[1]
+                date_to = f"{year}-{month:02d}-{last_day:02d}"
+                print(f"[ChatService] Extracted date range: {date_from} to {date_to}")
+                return date_from, date_to
+
+        # Pattern: "in 2026", "2026" (whole year)
+        year_only_pattern = r'(?:in\s+)?(\d{4})(?:\s|$)'
+        match = re.search(year_only_pattern, message)
+        if match:
+            year = int(match.group(1))
+            # Check if it's a reasonable year (not something like 2025 that might be part of event name)
+            current_year = datetime.now().year
+            if current_year <= year <= current_year + 5:
+                date_from = f"{year}-01-01"
+                date_to = f"{year}-12-31"
+                print(f"[ChatService] Extracted year range: {date_from} to {date_to}")
+                return date_from, date_to
+
+        # Pattern: date ranges "from Jan 2026 to Mar 2026"
+        range_pattern = r'from\s+(\w+)\s+(\d{4})\s+to\s+(\w+)\s+(\d{4})'
+        match = re.search(range_pattern, message, re.IGNORECASE)
+        if match:
+            start_month_str = match.group(1).lower()
+            start_year = int(match.group(2))
+            end_month_str = match.group(3).lower()
+            end_year = int(match.group(4))
+
+            if start_month_str in month_map and end_month_str in month_map:
+                start_month = month_map[start_month_str]
+                end_month = month_map[end_month_str]
+                date_from = f"{start_year}-{start_month:02d}-01"
+                last_day = calendar.monthrange(end_year, end_month)[1]
+                date_to = f"{end_year}-{end_month:02d}-{last_day:02d}"
+                print(f"[ChatService] Extracted date range: {date_from} to {date_to}")
+                return date_from, date_to
+
+        # Pattern: "between Jan and Mar 2026"
+        between_pattern = r'between\s+(\w+)\s+and\s+(\w+)\s+(\d{4})'
+        match = re.search(between_pattern, message, re.IGNORECASE)
+        if match:
+            start_month_str = match.group(1).lower()
+            end_month_str = match.group(2).lower()
+            year = int(match.group(3))
+
+            if start_month_str in month_map and end_month_str in month_map:
+                start_month = month_map[start_month_str]
+                end_month = month_map[end_month_str]
+                date_from = f"{year}-{start_month:02d}-01"
+                last_day = calendar.monthrange(year, end_month)[1]
+                date_to = f"{year}-{end_month:02d}-{last_day:02d}"
+                print(f"[ChatService] Extracted date range: {date_from} to {date_to}")
+                return date_from, date_to
+
+        return None, None
 
     def _extract_countries(self, message: str) -> List[str]:
         """Extract country names from message."""
