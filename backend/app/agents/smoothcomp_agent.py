@@ -147,10 +147,15 @@ class SmoothcompAgent(BaseTournamentAgent):
             return False
 
     async def _apply_country_filter(self, page: Page, location: str) -> bool:
-        """Apply country filter on Smoothcomp events page using tag-based input."""
+        """Apply country filter on Smoothcomp events page using tag-based input.
+
+        Supports multiple countries passed as comma-separated string (e.g., "Malaysia,Taiwan")
+        """
         try:
+            # Parse comma-separated countries
+            countries = [c.strip() for c in location.split(',') if c.strip()]
             print(f"[Smoothcomp] === APPLYING COUNTRY FILTER (TAGS INPUT) ===")
-            print(f"[Smoothcomp] Looking for country: {location}")
+            print(f"[Smoothcomp] Looking for countries: {countries}")
 
             # Wait for page to be fully loaded
             await page.wait_for_timeout(2000)
@@ -218,47 +223,48 @@ class SmoothcompAgent(BaseTournamentAgent):
                     print(f"[Smoothcomp] Could not find country filter input")
                     return False
 
-                await page.wait_for_timeout(500)
+                # Loop through each country and add it as a tag
+                for country in countries:
+                    await page.wait_for_timeout(500)
 
-                # Type the country name
-                await page.keyboard.type(location, delay=50)
-                print(f"[Smoothcomp] Typed '{location}'")
-                await page.wait_for_timeout(1500)
+                    # Type the country name
+                    await page.keyboard.type(country, delay=50)
+                    print(f"[Smoothcomp] Typed '{country}'")
+                    await page.wait_for_timeout(1500)
 
-                # Look for dropdown option that matches and click it directly
-                # This is safer than pressing Enter which might select wrong option
-                dropdown_selectors = [
-                    f'li:has-text("{location}")',
-                    f'div[class*="option"]:has-text("{location}")',
-                    f'span:has-text("{location}")',
-                    f'[class*="dropdown"] *:has-text("{location}")',
-                ]
+                    # Look for dropdown option that matches and click it directly
+                    # This is safer than pressing Enter which might select wrong option
+                    dropdown_selectors = [
+                        f'li:has-text("{country}")',
+                        f'div[class*="option"]:has-text("{country}")',
+                        f'span:has-text("{country}")',
+                        f'[class*="dropdown"] *:has-text("{country}")',
+                    ]
 
-                option_clicked = False
-                for selector in dropdown_selectors:
-                    try:
-                        option = await page.query_selector(selector)
-                        if option:
-                            await option.click()
-                            option_clicked = True
-                            print(f"[Smoothcomp] Clicked dropdown option for '{location}'")
-                            break
-                    except Exception:
-                        continue
+                    option_clicked = False
+                    for selector in dropdown_selectors:
+                        try:
+                            option = await page.query_selector(selector)
+                            if option:
+                                await option.click()
+                                option_clicked = True
+                                print(f"[Smoothcomp] Clicked dropdown option for '{country}'")
+                                break
+                        except Exception:
+                            continue
 
-                # Fallback: if no dropdown option found, use keyboard
-                if not option_clicked:
-                    # Press Tab instead of Enter to avoid selecting wrong option
-                    await page.keyboard.press('Escape')
-                    print(f"[Smoothcomp] Pressed Escape to close dropdown (no option found)")
+                    # Fallback: if no dropdown option found, press Escape
+                    if not option_clicked:
+                        await page.keyboard.press('Escape')
+                        print(f"[Smoothcomp] Pressed Escape (no option found for '{country}')")
 
-                await page.wait_for_timeout(2000)
+                    await page.wait_for_timeout(1000)
 
                 # Press Escape to ensure dropdown is closed
                 await page.keyboard.press('Escape')
                 await page.wait_for_timeout(1000)
 
-                print(f"[Smoothcomp] Country filter applied for: {location}")
+                print(f"[Smoothcomp] Country filter applied for: {countries}")
                 return True
 
             except Exception as e:
@@ -270,27 +276,29 @@ class SmoothcompAgent(BaseTournamentAgent):
             return False
 
     async def _scrape_events_page(self, page: Page, location: Optional[str] = None) -> List[Tournament]:
-        """Scrape tournaments from Smoothcomp events page, clicking into each for details."""
+        """Scrape tournaments from Smoothcomp events page, clicking into each for details.
+
+        Location can be a single country or comma-separated list (e.g., "Malaysia,Taiwan")
+        """
         tournaments = []
 
+        # Parse comma-separated countries for filtering
+        target_countries = []
+        if location:
+            target_countries = [c.strip().lower() for c in location.split(',') if c.strip()]
+
         try:
-            # Build URL with country filter if location specified
+            # Navigate to events page (URL params don't work well with multiple countries)
             url = self.events_url
-            if location:
-                # Try URL-based filtering first (more reliable than dropdown)
-                # Smoothcomp may use country codes or names in URL params
-                country_param = location.lower().replace(' ', '-')
-                url = f"{self.events_url}?country={country_param}"
-                print(f"[Smoothcomp] Trying URL-based filter: {url}")
 
             print(f"[Smoothcomp] Navigating to {url}")
             await page.goto(url, wait_until='domcontentloaded')
             await page.wait_for_timeout(3000)
             print(f"[Smoothcomp] Page loaded, current URL: {page.url}")
 
-            # If URL filtering didn't work, try the dropdown
-            if location and 'country=' not in page.url:
-                print("[Smoothcomp] URL filter not applied, trying dropdown...")
+            # Apply country filter using the dropdown/tag input
+            if location:
+                print(f"[Smoothcomp] Applying country filter for: {target_countries}")
                 await self._apply_country_filter(page, location)
 
             # Scroll to load more events
@@ -313,17 +321,18 @@ class SmoothcompAgent(BaseTournamentAgent):
                 if href and '/en/event/' in href:
                     event_id = href.split('/en/event/')[-1].split('/')[0]
                     if event_id and event_id not in seen:
-                        # Check if this event card mentions the target location
+                        # Check if this event card mentions any of the target countries
                         # Look at parent container for location text
-                        if location:
+                        if target_countries:
                             parent = link.find_parent(['div', 'article', 'li', 'section'])
                             if parent:
                                 card_text = parent.get_text(separator=' ', strip=True).lower()
-                                loc_lower = location.lower()
-                                # Only add if location is mentioned in the card
-                                if loc_lower not in card_text:
-                                    continue  # Skip this event - wrong country
-                                print(f"[Smoothcomp] Found event card mentioning '{location}'")
+                                # Check if ANY of the target countries is in the card
+                                country_found = any(country in card_text for country in target_countries)
+                                if not country_found:
+                                    continue  # Skip this event - doesn't match any target country
+                                matched = [c for c in target_countries if c in card_text]
+                                print(f"[Smoothcomp] Found event card mentioning: {matched}")
 
                         seen.add(event_id)
                         if href.startswith('/'):
@@ -332,11 +341,11 @@ class SmoothcompAgent(BaseTournamentAgent):
                             full_url = href
                         unique_urls.append(full_url)
 
-            print(f"[Smoothcomp] Found {len(unique_urls)} events matching '{location or 'all locations'}'")
+            print(f"[Smoothcomp] Found {len(unique_urls)} events matching '{target_countries or 'all locations'}'")
 
-            if location and len(unique_urls) == 0:
-                print(f"[Smoothcomp] WARNING: No events found for '{location}' on listing page")
-                print(f"[Smoothcomp] The country filter may not have worked. Check if '{location}' is spelled correctly.")
+            if target_countries and len(unique_urls) == 0:
+                print(f"[Smoothcomp] WARNING: No events found for '{target_countries}' on listing page")
+                print(f"[Smoothcomp] The country filter may not have worked. Check if countries are spelled correctly.")
 
             # Limit to first 20 events to avoid too many requests
             max_events = 20
@@ -521,16 +530,22 @@ class SmoothcompAgent(BaseTournamentAgent):
             # Parse location components
             city, state, country = self._parse_location(location)
 
-            # If we have a target location and it's found in page text, use it as country
+            # If we have target countries and any is found in page text, use it as country
             # This helps when location extraction fails to get proper country
-            if target_location and target_location.lower() in page_text.lower():
-                if not country or country == location:  # country wasn't properly parsed
-                    country = target_location
-                    print(f"[Smoothcomp] Set country to target location: '{country}'")
-                # Also update location string if it's generic
-                if location == "TBD" or "Location" in location:
-                    location = target_location
-                    print(f"[Smoothcomp] Updated location to: '{location}'")
+            if target_location:
+                # Parse comma-separated target countries
+                target_countries = [c.strip() for c in target_location.split(',') if c.strip()]
+                page_text_lower = page_text.lower()
+                for target_country in target_countries:
+                    if target_country.lower() in page_text_lower:
+                        if not country or country == location:  # country wasn't properly parsed
+                            country = target_country
+                            print(f"[Smoothcomp] Set country to target: '{country}'")
+                        # Also update location string if it's generic
+                        if location == "TBD" or "Location" in location:
+                            location = target_country
+                            print(f"[Smoothcomp] Updated location to: '{location}'")
+                        break  # Use first matching country
 
             print(f"[Smoothcomp] Detail: name='{name[:30]}...', loc='{location[:30]}...', org='{organizer}', fees='{fees}', date='{date}'")
 

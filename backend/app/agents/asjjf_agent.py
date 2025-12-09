@@ -142,8 +142,16 @@ class ASJJFAgent(BaseTournamentAgent):
             return False
 
     async def _scrape_events_page(self, page: Page, location: Optional[str] = None) -> List[Tournament]:
-        """Scrape tournaments from ASJJF events page."""
+        """Scrape tournaments from ASJJF events page.
+
+        Location can be a single country or comma-separated list (e.g., "Malaysia,Taiwan")
+        """
         tournaments = []
+
+        # Parse comma-separated countries for filtering
+        target_countries = []
+        if location:
+            target_countries = [c.strip().lower() for c in location.split(',') if c.strip()]
 
         try:
             await page.goto(self.events_url, wait_until='domcontentloaded')
@@ -181,11 +189,20 @@ class ASJJFAgent(BaseTournamentAgent):
                 try:
                     tournament = self._parse_event_element(event)
                     if tournament:
-                        if location:
-                            loc_lower = location.lower()
-                            if (loc_lower not in tournament.location.lower() and
-                                (not tournament.city or loc_lower not in tournament.city.lower()) and
-                                (not tournament.country or loc_lower not in tournament.country.lower())):
+                        # Filter by target countries if specified
+                        if target_countries:
+                            tournament_loc = tournament.location.lower() if tournament.location else ""
+                            tournament_city = tournament.city.lower() if tournament.city else ""
+                            tournament_country = tournament.country.lower() if tournament.country else ""
+
+                            # Check if ANY target country matches
+                            matches = any(
+                                country in tournament_loc or
+                                country in tournament_city or
+                                country in tournament_country
+                                for country in target_countries
+                            )
+                            if not matches:
                                 continue
                         tournaments.append(tournament)
                 except Exception as e:

@@ -44,12 +44,12 @@ class TournamentService:
         if not sources:
             sources = list(self.agents.keys())
 
-        # If location is not set but countries are specified, use first country as location
-        # This ensures agents can apply country filters on their websites
+        # If location is not set but countries are specified, pass all countries
+        # as a comma-separated string so agents can filter by multiple countries
         effective_location = location
         if not effective_location and countries:
-            effective_location = countries[0]
-            print(f"[TournamentService] Using country '{effective_location}' as location filter for agents")
+            effective_location = ",".join(countries)
+            print(f"[TournamentService] Using countries '{effective_location}' as location filter for agents")
 
         # Run all agent scrapes concurrently
         tasks = []
