@@ -17,15 +17,15 @@ class ASJJFAgent(BaseTournamentAgent):
 
     @property
     def base_url(self) -> str:
-        return "https://www.asjjf.org"
+        return "https://asjjf.org"
 
     @property
     def events_url(self) -> str:
-        return "https://www.asjjf.org/events"
+        return "https://asjjf.org/main/eventsBySeason/286"
 
     @property
     def login_url(self) -> str:
-        return "https://www.asjjf.org/login"
+        return "https://asjjf.org/login"
 
     @property
     def email_env_var(self) -> str:
@@ -142,7 +142,7 @@ class ASJJFAgent(BaseTournamentAgent):
             return False
 
     async def _scrape_events_page(self, page: Page, location: Optional[str] = None) -> List[Tournament]:
-        """Scrape tournaments from ASJJF events page.
+        """Scrape tournaments from ASJJF events calendar page.
 
         Location can be a single country or comma-separated list (e.g., "Malaysia,Taiwan")
         """
@@ -154,9 +154,12 @@ class ASJJFAgent(BaseTournamentAgent):
             target_countries = [c.strip().lower() for c in location.split(',') if c.strip()]
 
         try:
+            print(f"[ASJJF] Navigating to {self.events_url}")
             await page.goto(self.events_url, wait_until='domcontentloaded')
             await page.wait_for_timeout(3000)
+            print(f"[ASJJF] Page loaded, current URL: {page.url}")
 
+            # Scroll to load all events
             for _ in range(3):
                 await page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
                 await page.wait_for_timeout(1500)
@@ -164,53 +167,121 @@ class ASJJFAgent(BaseTournamentAgent):
             content = await page.content()
             soup = BeautifulSoup(content, 'lxml')
 
-            event_selectors = [
-                '.event-card',
-                '.event-item',
-                '.tournament-card',
-                '[class*="event"]',
-                'article',
-            ]
+            # ASJJF event links follow the pattern /main/eventInfo/[ID]
+            event_links = soup.select('a[href*="/main/eventInfo/"]')
+            print(f"[ASJJF] Found {len(event_links)} event links")
 
-            events = []
-            for selector in event_selectors:
-                events = soup.select(selector)
-                if events:
-                    break
+            seen_hrefs = set()
+            for link in event_links:
+                href = link.get('href', '')
+                if href in seen_hrefs:
+                    continue
+                seen_hrefs.add(href)
 
-            if not events:
-                event_links = soup.select('a[href*="/event"]')
-                for link in event_links:
-                    parent = link.find_parent(['div', 'article', 'li'])
-                    if parent and parent not in events:
-                        events.append(parent)
-
-            for event in events[:50]:
                 try:
-                    tournament = self._parse_event_element(event)
-                    if tournament:
-                        # Filter by target countries if specified
-                        if target_countries:
-                            tournament_loc = tournament.location.lower() if tournament.location else ""
-                            tournament_city = tournament.city.lower() if tournament.city else ""
-                            tournament_country = tournament.country.lower() if tournament.country else ""
+                    # Get the event name from the link text
+                    name = link.get_text(strip=True)
+                    if not name or len(name) < 3:
+                        continue
 
-                            # Check if ANY target country matches
-                            matches = any(
-                                country in tournament_loc or
-                                country in tournament_city or
-                                country in tournament_country
-                                for country in target_countries
-                            )
-                            if not matches:
-                                continue
-                        tournaments.append(tournament)
+                    # Build full URL
+                    if href.startswith('/'):
+                        registration_link = self.base_url + href
+                    else:
+                        registration_link = href
+
+                    # Find parent container for additional info
+                    parent = link.find_parent(['div', 'tr', 'li', 'article'])
+                    parent_text = parent.get_text(separator=' ', strip=True) if parent else name
+
+                    # Extract date - look for patterns like "December 20-21" or "February 28 (Saturday)"
+                    date = "TBD"
+                    date_match = re.search(r'(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:\s*[-–&]\s*\d{1,2})?(?:,?\s*(\d{4}))?', parent_text, re.IGNORECASE)
+                    if date_match:
+                        month_name = date_match.group(1)
+                        day = date_match.group(2)
+                        year = date_match.group(3)
+                        if not year:
+                            # Assume current or next year
+                            year = str(datetime.now().year)
+                            # If month is in the past, use next year
+                            month_map = {'january': 1, 'february': 2, 'march': 3, 'april': 4, 'may': 5, 'june': 6,
+                                        'july': 7, 'august': 8, 'september': 9, 'october': 10, 'november': 11, 'december': 12}
+                            event_month = month_map.get(month_name.lower(), 1)
+                            if event_month < datetime.now().month:
+                                year = str(datetime.now().year + 1)
+                        month_map = {'january': 1, 'february': 2, 'march': 3, 'april': 4, 'may': 5, 'june': 6,
+                                    'july': 7, 'august': 8, 'september': 9, 'october': 10, 'november': 11, 'december': 12}
+                        month_num = month_map.get(month_name.lower(), 1)
+                        date = f"{year}-{month_num:02d}-{int(day):02d}"
+
+                    # Extract location/country from event name or parent text
+                    # ASJJF events often have country in the name like "Taiwan International", "Tokyo Spring"
+                    location_str = "TBD"
+                    country = None
+
+                    # Check for countries/cities in the event name
+                    country_keywords = {
+                        'taiwan': 'Taiwan',
+                        'japan': 'Japan',
+                        'tokyo': 'Japan',
+                        'osaka': 'Japan',
+                        'sendai': 'Japan',
+                        'nagoya': 'Japan',
+                        'china': 'China',
+                        'korea': 'South Korea',
+                        'philippines': 'Philippines',
+                        'malaysia': 'Malaysia',
+                        'singapore': 'Singapore',
+                        'guam': 'Guam',
+                        'asia': 'Asia',
+                    }
+
+                    name_lower = name.lower()
+                    for keyword, country_name in country_keywords.items():
+                        if keyword in name_lower:
+                            country = country_name
+                            location_str = country_name
+                            break
+
+                    # Filter by target countries if specified
+                    if target_countries:
+                        name_text = f"{name} {location_str}".lower()
+                        matches = any(c in name_text for c in target_countries)
+                        if not matches:
+                            continue
+
+                    city, parsed_country = self._parse_location(location_str)
+                    if not country:
+                        country = parsed_country
+
+                    tournament = Tournament(
+                        id=self._generate_id(name, date),
+                        name=name,
+                        date=date,
+                        location=location_str,
+                        city=city,
+                        country=country,
+                        description=None,
+                        organizer="ASJJF",
+                        fees=None,
+                        registration_link=registration_link,
+                        source=self.source,
+                        sport="BJJ/Judo",
+                    )
+                    tournaments.append(tournament)
+                    print(f"[ASJJF] Added: {name[:40]}... ({country or 'Unknown'})")
+
                 except Exception as e:
-                    print(f"Error parsing ASJJF event: {e}")
+                    print(f"[ASJJF] Error parsing event link: {e}")
                     continue
 
+            print(f"[ASJJF] Successfully scraped {len(tournaments)} tournaments")
+
         except Exception as e:
-            print(f"Error scraping ASJJF events: {e}")
+            print(f"[ASJJF] Error scraping events: {e}")
+            import traceback
+            traceback.print_exc()
 
         return tournaments
 
