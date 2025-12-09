@@ -16,10 +16,21 @@ class NotteSession:
         """Get current URL."""
         return self._current_url
 
+    @property
+    def raw_session(self):
+        """Get the raw Notte session for direct access."""
+        return self._session
+
     async def goto(self, url: str, wait_until: str = 'domcontentloaded') -> None:
         """Navigate to a URL."""
-        self._session.execute({"type": "goto", "url": url})
+        self._session.goto(url)
         self._current_url = url
+
+    async def action(self, instruction: str) -> Any:
+        """Execute a natural language action on the page."""
+        print(f"[Notte] Executing action: {instruction}")
+        result = self._session.act(instruction)
+        return result
 
     async def content(self) -> str:
         """Get page HTML content."""
@@ -32,9 +43,9 @@ class NotteSession:
         await asyncio.sleep(timeout / 1000)
 
     async def evaluate(self, script: str) -> Any:
-        """Execute JavaScript - for scrolling, execute scroll action."""
+        """Execute JavaScript - for scrolling, use Notte action."""
         if 'scrollTo' in script or 'scroll' in script.lower():
-            self._session.execute({"type": "scroll", "direction": "down"})
+            self._session.act("scroll down the page")
         return None
 
     async def query_selector(self, selector: str) -> Optional['NotteElement']:
@@ -51,12 +62,12 @@ class NotteSession:
         return NotteKeyboard(self._session)
 
     async def fill(self, selector: str, value: str) -> None:
-        """Fill an input field."""
-        self._session.execute({"type": "fill", "selector": selector, "value": value})
+        """Fill an input field using natural language."""
+        self._session.act(f"type '{value}' into the {selector} field")
 
     async def click(self, selector: str) -> None:
-        """Click an element."""
-        self._session.execute({"type": "click", "selector": selector})
+        """Click an element using natural language."""
+        self._session.act(f"click on {selector}")
 
     async def wait_for_selector(self, selector: str, state: str = 'visible', timeout: int = 10000) -> None:
         """Wait for element - Notte handles this automatically."""
@@ -77,11 +88,11 @@ class NotteElement:
 
     async def click(self) -> None:
         """Click the element."""
-        self._session.execute({"type": "click", "selector": self._selector})
+        self._session.act(f"click on {self._selector}")
 
     async def fill(self, value: str) -> None:
         """Fill the element with text."""
-        self._session.execute({"type": "fill", "selector": self._selector, "value": value})
+        self._session.act(f"type '{value}' into {self._selector}")
 
     async def inner_text(self) -> str:
         """Get inner text - use scrape."""
@@ -109,11 +120,11 @@ class NotteKeyboard:
 
     async def type(self, text: str, delay: int = 0) -> None:
         """Type text."""
-        self._session.execute({"type": "type", "text": text})
+        self._session.act(f"type '{text}'")
 
     async def press(self, key: str) -> None:
         """Press a key."""
-        self._session.execute({"type": "press", "key": key})
+        self._session.act(f"press the {key} key")
 
 
 class NotteContext:

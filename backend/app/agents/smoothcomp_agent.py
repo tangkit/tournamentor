@@ -145,142 +145,58 @@ class SmoothcompAgent(BaseTournamentAgent):
             print(f"Login error: {e}")
             return False
 
+    async def _handle_cookie_popup(self, page: NotteSession) -> None:
+        """Handle the cookie consent popup if present."""
+        try:
+            print("[Smoothcomp] Checking for cookie popup...")
+            await page.wait_for_timeout(2000)
+            # Use natural language to accept cookies
+            await page.action("click on 'Accept All' or 'Accept all cookies' button if visible")
+            print("[Smoothcomp] Cookie popup handled")
+            await page.wait_for_timeout(1000)
+        except Exception as e:
+            print(f"[Smoothcomp] No cookie popup or error: {e}")
+
     async def _apply_country_filter(self, page: NotteSession, location: str) -> bool:
-        """Apply country filter on Smoothcomp events page using tag-based input.
+        """Apply country filter on Smoothcomp events page using Notte natural language actions.
 
         Supports multiple countries passed as comma-separated string (e.g., "Malaysia,Taiwan")
         """
         try:
             # Parse comma-separated countries
             countries = [c.strip() for c in location.split(',') if c.strip()]
-            print(f"[Smoothcomp] === APPLYING COUNTRY FILTER (TAGS INPUT) ===")
-            print(f"[Smoothcomp] Looking for countries: {countries}")
+            print(f"[Smoothcomp] === APPLYING COUNTRY FILTER ===")
+            print(f"[Smoothcomp] Countries to filter: {countries}")
 
             # Wait for page to be fully loaded
             await page.wait_for_timeout(2000)
 
-            # Strategy: Find the country filter by looking for text "Countries" label
-            # then click the input field within that filter section
-            try:
-                # Method 1: Look for the country filter section by finding "Countries" text
-                # and then clicking the nearby input
-                country_filter_found = False
-
-                # Try to find by label text - Smoothcomp shows filter labels
-                # Look for a container with "Countries" text, then find input within it
-                filter_sections = await page.query_selector_all('div.multiselect, div[class*="filter"], div[class*="select"]')
-                print(f"[Smoothcomp] Found {len(filter_sections)} potential filter sections")
-
-                for section in filter_sections:
-                    section_text = await section.inner_text()
-                    if 'countries' in section_text.lower() or 'country' in section_text.lower():
-                        print(f"[Smoothcomp] Found country filter section")
-                        # Find input within this section
-                        input_elem = await section.query_selector('input')
-                        if input_elem:
-                            await input_elem.click()
-                            country_filter_found = True
-                            print(f"[Smoothcomp] Clicked country input field")
-                            break
-
-                # Method 2: Try finding by placeholder that specifically mentions countries
-                if not country_filter_found:
-                    # Try various country-specific selectors
-                    country_selectors = [
-                        'input[placeholder*="countr" i]',
-                        'input[aria-label*="countr" i]',
-                        'div:has-text("Countries") input',
-                        'label:has-text("Countries") + div input',
-                        'label:has-text("Countries") ~ div input',
-                    ]
-
-                    for selector in country_selectors:
-                        try:
-                            elem = await page.query_selector(selector)
-                            if elem:
-                                await elem.click()
-                                country_filter_found = True
-                                print(f"[Smoothcomp] Found country input with selector: {selector}")
-                                break
-                        except Exception:
-                            continue
-
-                if not country_filter_found:
-                    print(f"[Smoothcomp] Could not find country filter input")
-                    return False
-
-                # Loop through each country and add it as a tag
-                for i, country in enumerate(countries):
-                    await page.wait_for_timeout(500)
-
-                    # Re-click the country filter input before typing (after first country, focus is lost)
-                    if i > 0:
-                        try:
-                            # Re-find the country filter section specifically (not generic inputs)
-                            refound = False
-                            filter_sections = await page.query_selector_all('div.multiselect, div[class*="filter"], div[class*="select"]')
-                            for section in filter_sections:
-                                try:
-                                    section_text = await section.inner_text()
-                                    if 'countries' in section_text.lower() or 'country' in section_text.lower():
-                                        input_elem = await section.query_selector('input')
-                                        if input_elem:
-                                            await input_elem.click()
-                                            refound = True
-                                            print(f"[Smoothcomp] Re-clicked country filter input for '{country}'")
-                                            await page.wait_for_timeout(300)
-                                            break
-                                except Exception:
-                                    continue
-
-                            if not refound:
-                                print(f"[Smoothcomp] Could not re-find country filter input for '{country}'")
-                        except Exception as e:
-                            print(f"[Smoothcomp] Could not re-click input: {e}")
-
-                    # Type the country name
-                    await page.keyboard.type(country, delay=50)
-                    print(f"[Smoothcomp] Typed '{country}'")
-                    await page.wait_for_timeout(1500)
-
-                    # Look for dropdown option that matches and click it directly
-                    # This is safer than pressing Enter which might select wrong option
-                    dropdown_selectors = [
-                        f'li:has-text("{country}")',
-                        f'div[class*="option"]:has-text("{country}")',
-                        f'span:has-text("{country}")',
-                        f'[class*="dropdown"] *:has-text("{country}")',
-                    ]
-
-                    option_clicked = False
-                    for selector in dropdown_selectors:
-                        try:
-                            option = await page.query_selector(selector)
-                            if option:
-                                await option.click()
-                                option_clicked = True
-                                print(f"[Smoothcomp] Clicked dropdown option for '{country}'")
-                                break
-                        except Exception:
-                            continue
-
-                    # Fallback: if no dropdown option found, press Escape
-                    if not option_clicked:
-                        await page.keyboard.press('Escape')
-                        print(f"[Smoothcomp] Pressed Escape (no option found for '{country}')")
-
+            # Use natural language to interact with the country filter
+            for i, country in enumerate(countries):
+                try:
+                    # Click on the Countries input field
+                    print(f"[Smoothcomp] Clicking Countries input for '{country}'...")
+                    await page.action("click on the Countries filter input field")
                     await page.wait_for_timeout(1000)
 
-                # Press Escape to ensure dropdown is closed
-                await page.keyboard.press('Escape')
-                await page.wait_for_timeout(1000)
+                    # Type the country name
+                    print(f"[Smoothcomp] Typing '{country}'...")
+                    await page.action(f"type '{country}' in the Countries input field")
+                    await page.wait_for_timeout(1500)
 
-                print(f"[Smoothcomp] Country filter applied for: {countries}")
-                return True
+                    # Select the country from dropdown
+                    print(f"[Smoothcomp] Selecting '{country}' from dropdown...")
+                    await page.action(f"click on '{country}' in the dropdown list")
+                    await page.wait_for_timeout(1000)
 
-            except Exception as e:
-                print(f"[Smoothcomp] Could not interact with country filter: {e}")
-                return False
+                    print(f"[Smoothcomp] Added country: {country}")
+
+                except Exception as e:
+                    print(f"[Smoothcomp] Error adding country '{country}': {e}")
+                    continue
+
+            print(f"[Smoothcomp] Country filter applied for: {countries}")
+            return True
 
         except Exception as e:
             print(f"[Smoothcomp] Country filter error: {e}")
@@ -307,7 +223,10 @@ class SmoothcompAgent(BaseTournamentAgent):
             await page.wait_for_timeout(3000)
             print(f"[Smoothcomp] Page loaded, current URL: {page.url}")
 
-            # Apply country filter using the dropdown/tag input
+            # Handle cookie popup first
+            await self._handle_cookie_popup(page)
+
+            # Apply country filter using natural language actions
             if location:
                 print(f"[Smoothcomp] Applying country filter for: {target_countries}")
                 await self._apply_country_filter(page, location)
