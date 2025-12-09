@@ -247,10 +247,13 @@ class BrowserManager:
             await self._initialize()
 
         # Create Notte session
-        # Note: Notte cloud only supports headless=True (non-headless not supported yet)
-        print(f"[BrowserManager] Creating session (headless=True, cloud mode)...")
+        # Note: Notte cloud requires headless=True, but open_viewer streams the session
+        # open_viewer controlled by HEADLESS env var (HEADLESS=false enables viewer)
+        open_viewer = not self.headless
+        print(f"[BrowserManager] Creating session (headless=True, open_viewer={open_viewer})...")
         session = self._client.Session(
             headless=True,  # Notte cloud only supports headless mode
+            open_viewer=open_viewer,  # Stream view of headless browser
             timeout_minutes=15,
             browser_type='chrome-nightly',  # Required for solve_captchas
             proxies=True,  # Required when using chrome-nightly with solve_captchas
