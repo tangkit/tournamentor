@@ -46,12 +46,19 @@ class TournamentService:
         if not sources:
             sources = list(self.agents.keys())
 
+        # If location is not set but countries are specified, use first country as location
+        # This ensures agents can apply country filters on their websites
+        effective_location = location
+        if not effective_location and countries:
+            effective_location = countries[0]
+            print(f"[TournamentService] Using country '{effective_location}' as location filter for agents")
+
         # Run all agent scrapes concurrently
         tasks = []
         for source in sources:
             if source in self.agents:
                 agent = self.agents[source]
-                tasks.append(agent.scrape_tournaments(location))
+                tasks.append(agent.scrape_tournaments(effective_location))
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
