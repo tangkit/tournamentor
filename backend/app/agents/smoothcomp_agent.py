@@ -148,7 +148,7 @@ class SmoothcompAgent(BaseTournamentAgent):
             return False
 
     async def _scrape_events_page(self, page: Page, location: Optional[str] = None) -> List[Tournament]:
-        """Scrape tournaments from Smoothcomp events page."""
+        """Scrape tournaments from Smoothcomp events page, clicking into each for details."""
         tournaments = []
 
         try:
@@ -162,44 +162,40 @@ class SmoothcompAgent(BaseTournamentAgent):
             for i in range(3):
                 await page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
                 await page.wait_for_timeout(1500)
-                print(f"[Smoothcomp] Scroll {i+1}/3 complete")
 
-            # Get page content
+            # Get page content and find event links
             content = await page.content()
-            print(f"[Smoothcomp] Got page content, length: {len(content)} chars")
             soup = BeautifulSoup(content, 'lxml')
 
-            # Find event cards/listings
-            event_selectors = [
-                'div[class*="event-card"]',
-                'div[class*="event-item"]',
-                'article[class*="event"]',
-                '.event-listing',
-                '[data-event-id]',
-            ]
+            # Find all event links
+            event_links = soup.select('a[href*="/en/event/"]')
+            unique_urls = []
+            seen = set()
+            for link in event_links:
+                href = link.get('href', '')
+                if href and '/en/event/' in href:
+                    # Build full URL
+                    if href.startswith('/'):
+                        full_url = self.base_url + href
+                    else:
+                        full_url = href
+                    # Only add unique event URLs (not subpages)
+                    event_id = href.split('/en/event/')[-1].split('/')[0]
+                    if event_id and event_id not in seen:
+                        seen.add(event_id)
+                        unique_urls.append(full_url)
 
-            events = []
-            for selector in event_selectors:
-                events = soup.select(selector)
-                if events:
-                    print(f"[Smoothcomp] Found {len(events)} events with selector: {selector}")
-                    break
+            print(f"[Smoothcomp] Found {len(unique_urls)} unique event URLs")
 
-            # If no specific event containers found, look for links to events
-            if not events:
-                print("[Smoothcomp] No event containers found, looking for event links...")
-                event_links = soup.select('a[href*="/en/event/"]')
-                print(f"[Smoothcomp] Found {len(event_links)} event links")
-                for link in event_links:
-                    parent = link.find_parent(['div', 'article', 'li'])
-                    if parent and parent not in events:
-                        events.append(parent)
-                print(f"[Smoothcomp] Found {len(events)} parent containers")
+            # Limit to first 20 events to avoid too many requests
+            max_events = 20
+            urls_to_scrape = unique_urls[:max_events]
+            print(f"[Smoothcomp] Scraping details for {len(urls_to_scrape)} events...")
 
-            print(f"[Smoothcomp] Processing {min(len(events), 50)} events...")
-            for event in events[:50]:  # Limit to 50 events
+            for i, url in enumerate(urls_to_scrape):
                 try:
-                    tournament = self._parse_event_element(event)
+                    print(f"[Smoothcomp] [{i+1}/{len(urls_to_scrape)}] Scraping {url}")
+                    tournament = await self._scrape_event_detail(page, url)
                     if tournament:
                         # Apply location filter
                         if location:
@@ -207,13 +203,15 @@ class SmoothcompAgent(BaseTournamentAgent):
                             if (loc_lower not in tournament.location.lower() and
                                 (not tournament.city or loc_lower not in tournament.city.lower()) and
                                 (not tournament.country or loc_lower not in tournament.country.lower())):
+                                print(f"[Smoothcomp] Skipping - location filter didn't match")
                                 continue
                         tournaments.append(tournament)
+                        print(f"[Smoothcomp] Added: {tournament.name[:40]}...")
                 except Exception as e:
-                    print(f"[Smoothcomp] Error parsing event: {e}")
+                    print(f"[Smoothcomp] Error scraping event detail: {e}")
                     continue
 
-            print(f"[Smoothcomp] Successfully parsed {len(tournaments)} tournaments")
+            print(f"[Smoothcomp] Successfully scraped {len(tournaments)} tournaments")
 
         except Exception as e:
             print(f"[Smoothcomp] Error scraping events page: {e}")
@@ -222,104 +220,108 @@ class SmoothcompAgent(BaseTournamentAgent):
 
         return tournaments
 
-    def _parse_event_element(self, element) -> Optional[Tournament]:
-        """Parse a BeautifulSoup element into a Tournament object."""
+    async def _scrape_event_detail(self, page: Page, url: str) -> Optional[Tournament]:
+        """Scrape full tournament details from event detail page."""
         try:
-            # Extract event name - try multiple selectors
+            await page.goto(url, wait_until='domcontentloaded')
+            await page.wait_for_timeout(2000)
+
+            content = await page.content()
+            soup = BeautifulSoup(content, 'lxml')
+
+            # Extract event name from h1 or title
             name = None
-            name_selectors = [
-                'h2', 'h3', 'h4',
-                '.event-name', '.event-title',
-                '[class*="title"]',
-                '[class*="name"]',
-            ]
-            for selector in name_selectors:
-                name_elem = element.select_one(selector)
-                if name_elem:
-                    name = name_elem.get_text(strip=True)
-                    if name:
-                        break
-
+            name_elem = soup.select_one('h1, h2, [class*="event-title"], [class*="event-name"]')
+            if name_elem:
+                name = name_elem.get_text(strip=True)
             if not name:
-                link = element.select_one('a[href*="/event/"]')
-                if link:
-                    name = link.get_text(strip=True)
-
+                title = soup.select_one('title')
+                if title:
+                    name = title.get_text(strip=True).split(' - ')[0].strip()
             if not name:
                 return None
 
-            # Extract location - look for text with country pattern (City, Country)
+            # Extract location - look for Location section or address
             location = "TBD"
             location_selectors = [
+                '[class*="location"] address',
                 '[class*="location"]',
-                '[class*="venue"]',
-                '[class*="place"]',
-                '[class*="city"]',
+                'address',
             ]
             for selector in location_selectors:
-                loc_elem = element.select_one(selector)
+                loc_elem = soup.select_one(selector)
                 if loc_elem:
-                    location = loc_elem.get_text(strip=True)
-                    if location and ',' in location:
+                    location = loc_elem.get_text(separator=', ', strip=True)
+                    if location and len(location) > 5:
                         break
 
-            # If still no location, look for any text containing comma (City, Country pattern)
-            if location == "TBD" or ',' not in location:
-                all_text = element.get_text(separator='|', strip=True)
-                # Look for patterns like "City, Country"
-                loc_match = re.search(r'([A-Za-z\s]+,\s*[A-Za-z\s]+)', all_text)
+            # Look for text containing city, country pattern
+            if location == "TBD":
+                # Try to find location in page text
+                page_text = soup.get_text()
+                loc_match = re.search(r'Location[:\s]+([^\n]+)', page_text)
                 if loc_match:
-                    potential_loc = loc_match.group(1).strip()
-                    # Avoid matching dates or other patterns
-                    if not any(month in potential_loc.lower() for month in ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']):
-                        location = potential_loc
+                    location = loc_match.group(1).strip()
 
-            # Extract date - look for date patterns
+            # Extract organizer
+            organizer = None
+            org_selectors = [
+                '[class*="organizer"]',
+                '[class*="merchant"]',
+                '[class*="host"]',
+            ]
+            for selector in org_selectors:
+                org_elem = soup.select_one(selector)
+                if org_elem:
+                    organizer = org_elem.get_text(strip=True)
+                    # Clean up organizer name
+                    organizer = re.sub(r'\d+\s*(year|event).*$', '', organizer, flags=re.IGNORECASE).strip()
+                    if organizer:
+                        break
+
+            # Extract fees - look for price patterns (RM, $, €, etc.)
+            fees = None
+            page_text = soup.get_text()
+            # Look for price patterns like "RM185", "$85", "€75", etc.
+            price_matches = re.findall(r'(RM|USD|\$|€|£)\s*(\d+(?:\.\d{2})?)', page_text)
+            if price_matches:
+                prices = sorted(set([f"{m[0]}{m[1]}" for m in price_matches]))
+                if len(prices) > 1:
+                    fees = f"{prices[0]} - {prices[-1]}"
+                elif prices:
+                    fees = prices[0]
+
+            # Extract date - look for "Event dates" or date patterns
             date_str = None
             date_selectors = [
-                '[class*="date"]',
+                '[class*="event-date"]',
+                '[class*="dates"]',
                 'time',
-                '[class*="when"]',
             ]
             for selector in date_selectors:
-                date_elem = element.select_one(selector)
+                date_elem = soup.select_one(selector)
                 if date_elem:
                     date_str = date_elem.get_text(strip=True)
                     if date_str:
                         break
 
-            # If no date found, search in text for date pattern
+            # Try to find date in text like "January 10 & 11, 2026" or "10 Jan - 11 Jan"
             if not date_str:
-                all_text = element.get_text(strip=True)
-                # Look for "2026 January 10" or "2026 January 10 - 11" patterns
-                # Match date with optional range (e.g., "2026 January 10 - 11")
-                date_match = re.search(r'(\d{4}\s+[A-Za-z]+\s+\d{1,2})(?:\s*-\s*\d{1,2})?', all_text)
+                date_match = re.search(r'(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*(?:\s*[-&]\s*\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*)?(?:\s*,?\s*\d{4})?)', page_text, re.IGNORECASE)
                 if date_match:
-                    date_str = date_match.group(1)  # Just get the start date
-
-            # Clean date string - remove range part if present (e.g., "10 - 11" -> "10")
-            if date_str:
-                date_str = re.sub(r'\s*-\s*\d+.*$', '', date_str)
-                print(f"[Smoothcomp] Raw date string: '{date_str}'")
+                    date_str = date_match.group(1)
+                else:
+                    # Try "2026 January 10" format
+                    date_match = re.search(r'(\d{4}\s+[A-Za-z]+\s+\d{1,2})', page_text)
+                    if date_match:
+                        date_str = date_match.group(1)
 
             date = self._parse_date(date_str) if date_str else "TBD"
-
-            # Extract registration link
-            link_elem = element.select_one('a[href*="/event/"]')
-            if link_elem and link_elem.get('href'):
-                href = link_elem['href']
-                if href.startswith('/'):
-                    registration_link = self.base_url + href
-                else:
-                    registration_link = href
-            else:
-                registration_link = self.events_url
 
             # Parse location components
             city, state, country = self._parse_location(location)
 
-            # Debug output for first few events
-            print(f"[Smoothcomp] Parsed: name='{name[:30] if name else None}...', location='{location}', date='{date}', country='{country}'")
+            print(f"[Smoothcomp] Detail: name='{name[:30]}...', loc='{location[:30]}...', org='{organizer}', fees='{fees}', date='{date}'")
 
             return Tournament(
                 id=self._generate_id(name, date),
@@ -330,15 +332,15 @@ class SmoothcompAgent(BaseTournamentAgent):
                 state=state,
                 country=country,
                 description=None,
-                organizer=None,
-                fees=None,
-                registration_link=registration_link,
+                organizer=organizer,
+                fees=fees,
+                registration_link=url,
                 source=self.source,
                 sport="BJJ",
             )
 
         except Exception as e:
-            print(f"[Smoothcomp] Error parsing event element: {e}")
+            print(f"[Smoothcomp] Error parsing event detail: {e}")
             import traceback
             traceback.print_exc()
             return None
