@@ -1,16 +1,15 @@
 import re
 from typing import List, Optional
 from datetime import datetime, timedelta
-from playwright.async_api import Page, BrowserContext
 from bs4 import BeautifulSoup
 
 from .base_agent import BaseTournamentAgent
 from ..models import Tournament, TournamentSource
-from ..browser.manager import BrowserManager
+from ..browser.manager import BrowserManager, NotteSession, NotteContext
 
 
 class SmoothcompAgent(BaseTournamentAgent):
-    """Agent for scraping tournaments from Smoothcomp using Playwright."""
+    """Agent for scraping tournaments from Smoothcomp using Notte AI."""
 
     @property
     def source(self) -> TournamentSource:
@@ -41,7 +40,7 @@ class SmoothcompAgent(BaseTournamentAgent):
         """Smoothcomp events page is public, no login needed."""
         return False
 
-    async def _check_logged_in(self, page: Page) -> bool:
+    async def _check_logged_in(self, page: NotteSession) -> bool:
         """Check if already logged in to Smoothcomp."""
         try:
             await page.goto(self.base_url, wait_until='domcontentloaded')
@@ -72,7 +71,7 @@ class SmoothcompAgent(BaseTournamentAgent):
             print(f"Error checking login status: {e}")
             return False
 
-    async def _login(self, page: Page, context: BrowserContext) -> bool:
+    async def _login(self, page: NotteSession, context: NotteContext) -> bool:
         """Login to Smoothcomp."""
         email, password = self.get_credentials()
         if not email or not password:
@@ -146,7 +145,7 @@ class SmoothcompAgent(BaseTournamentAgent):
             print(f"Login error: {e}")
             return False
 
-    async def _apply_country_filter(self, page: Page, location: str) -> bool:
+    async def _apply_country_filter(self, page: NotteSession, location: str) -> bool:
         """Apply country filter on Smoothcomp events page using tag-based input.
 
         Supports multiple countries passed as comma-separated string (e.g., "Malaysia,Taiwan")
@@ -205,19 +204,6 @@ class SmoothcompAgent(BaseTournamentAgent):
                                 break
                         except Exception:
                             continue
-
-                # Method 3: Use locator with text matching
-                if not country_filter_found:
-                    try:
-                        # Find element containing "Countries" text, then find input
-                        countries_label = page.locator('text=Countries').first
-                        parent = countries_label.locator('xpath=ancestor::div[contains(@class, "multiselect") or contains(@class, "filter")]').first
-                        input_elem = parent.locator('input').first
-                        await input_elem.click()
-                        country_filter_found = True
-                        print(f"[Smoothcomp] Found country input via locator")
-                    except Exception:
-                        pass
 
                 if not country_filter_found:
                     print(f"[Smoothcomp] Could not find country filter input")
@@ -300,7 +286,7 @@ class SmoothcompAgent(BaseTournamentAgent):
             print(f"[Smoothcomp] Country filter error: {e}")
             return False
 
-    async def _scrape_events_page(self, page: Page, location: Optional[str] = None) -> List[Tournament]:
+    async def _scrape_events_page(self, page: NotteSession, location: Optional[str] = None) -> List[Tournament]:
         """Scrape tournaments from Smoothcomp events page, clicking into each for details.
 
         Location can be a single country or comma-separated list (e.g., "Malaysia,Taiwan")
@@ -399,7 +385,7 @@ class SmoothcompAgent(BaseTournamentAgent):
 
         return tournaments
 
-    async def _scrape_event_detail(self, page: Page, url: str, target_location: Optional[str] = None) -> Optional[Tournament]:
+    async def _scrape_event_detail(self, page: NotteSession, url: str, target_location: Optional[str] = None) -> Optional[Tournament]:
         """Scrape full tournament details from event detail page."""
         try:
             await page.goto(url, wait_until='domcontentloaded')

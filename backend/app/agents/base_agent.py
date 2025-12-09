@@ -1,16 +1,14 @@
 import os
 import hashlib
 from abc import ABC, abstractmethod
-from typing import List, Optional
-from datetime import datetime
-from playwright.async_api import Page, BrowserContext
+from typing import List, Optional, TYPE_CHECKING
 
 from ..models import Tournament, TournamentSource
-from ..browser.manager import get_browser_manager, BrowserManager
+from ..browser.manager import get_browser_manager, BrowserManager, NotteSession, NotteContext
 
 
 class BaseTournamentAgent(ABC):
-    """Base class for tournament scraping agents using Playwright."""
+    """Base class for tournament scraping agents using Notte AI."""
 
     def __init__(self):
         self.storage_state_path = os.path.join(
@@ -75,7 +73,7 @@ class BaseTournamentAgent(ABC):
 
     async def scrape_tournaments(self, location: Optional[str] = None) -> List[Tournament]:
         """
-        Use Playwright to browse and extract tournament data.
+        Use Notte AI to browse and extract tournament data.
 
         Args:
             location: Optional location filter
@@ -97,36 +95,38 @@ class BaseTournamentAgent(ABC):
             storage_state = self.storage_state_path if os.path.exists(self.storage_state_path) else None
             print(f"[{self.source.value}] Storage state: {storage_state}")
 
-            async with browser_manager.new_context(storage_state=storage_state) as context:
-                async with browser_manager.new_page(context) as page:
-                    # Check if we need to login
-                    if self.requires_login:
-                        print(f"[{self.source.value}] Checking login status...")
-                        logged_in = await self._check_logged_in(page)
-                        if logged_in:
-                            print(f"[{self.source.value}] ✓ ALREADY LOGGED IN - Session restored successfully")
+            async with browser_manager.new_context(storage_state=storage_state) as (context, session):
+                # Create page wrapper
+                page = NotteSession(session)
+
+                # Check if we need to login
+                if self.requires_login:
+                    print(f"[{self.source.value}] Checking login status...")
+                    logged_in = await self._check_logged_in(page)
+                    if logged_in:
+                        print(f"[{self.source.value}] ✓ ALREADY LOGGED IN - Session restored successfully")
+                    else:
+                        print(f"[{self.source.value}] Not logged in, attempting login...")
+                        email, _ = self.get_credentials()
+                        print(f"[{self.source.value}] Using credentials for: {email}")
+                        success = await self._login(page, context)
+                        if success:
+                            print(f"[{self.source.value}] ✓ LOGIN SUCCESSFUL - Authenticated with {email}")
                         else:
-                            print(f"[{self.source.value}] Not logged in, attempting login...")
-                            email, _ = self.get_credentials()
-                            print(f"[{self.source.value}] Using credentials for: {email}")
-                            success = await self._login(page, context)
-                            if success:
-                                print(f"[{self.source.value}] ✓ LOGIN SUCCESSFUL - Authenticated with {email}")
-                            else:
-                                print(f"[{self.source.value}] ✗ LOGIN FAILED - Could not authenticate with {email}")
-                                return []
-                    else:
-                        print(f"[{self.source.value}] No login required for this source")
+                            print(f"[{self.source.value}] ✗ LOGIN FAILED - Could not authenticate with {email}")
+                            return []
+                else:
+                    print(f"[{self.source.value}] No login required for this source")
 
-                    # Navigate to events page and scrape
-                    print(f"[{self.source.value}] Scraping events page...")
-                    tournaments = await self._scrape_events_page(page, location)
+                # Navigate to events page and scrape
+                print(f"[{self.source.value}] Scraping events page...")
+                tournaments = await self._scrape_events_page(page, location)
 
-                    if tournaments:
-                        print(f"[{self.source.value}] Found {len(tournaments)} tournaments")
-                    else:
-                        print(f"[{self.source.value}] No tournaments found")
-                    return tournaments
+                if tournaments:
+                    print(f"[{self.source.value}] Found {len(tournaments)} tournaments")
+                else:
+                    print(f"[{self.source.value}] No tournaments found")
+                return tournaments
 
         except Exception as e:
             print(f"[{self.source.value}] Error: {e}")
@@ -135,18 +135,18 @@ class BaseTournamentAgent(ABC):
             return []
 
     @abstractmethod
-    async def _check_logged_in(self, page: Page) -> bool:
+    async def _check_logged_in(self, page: NotteSession) -> bool:
         """Check if already logged in to the site."""
         pass
 
     @abstractmethod
-    async def _login(self, page: Page, context: BrowserContext) -> bool:
+    async def _login(self, page: NotteSession, context: NotteContext) -> bool:
         """
         Perform login to the tournament site.
 
         Args:
-            page: Playwright page
-            context: Browser context for saving state
+            page: Notte session page wrapper
+            context: Notte context for saving state
 
         Returns:
             True if login successful
@@ -154,12 +154,12 @@ class BaseTournamentAgent(ABC):
         pass
 
     @abstractmethod
-    async def _scrape_events_page(self, page: Page, location: Optional[str] = None) -> List[Tournament]:
+    async def _scrape_events_page(self, page: NotteSession, location: Optional[str] = None) -> List[Tournament]:
         """
         Scrape tournaments from the events page.
 
         Args:
-            page: Playwright page (already logged in)
+            page: Notte session page wrapper (already logged in)
             location: Optional location filter
 
         Returns:
@@ -176,7 +176,7 @@ class BaseTournamentAgent(ABC):
         """Generate a unique ID for a tournament."""
         return hashlib.md5(f"{self.source.value}:{name}:{date}".encode()).hexdigest()[:12]
 
-    async def _save_session(self, context: BrowserContext):
+    async def _save_session(self, context: NotteContext):
         """Save browser session state for future use."""
         try:
             await context.storage_state(path=self.storage_state_path)

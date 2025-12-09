@@ -1,15 +1,15 @@
 import re
 from typing import List, Optional
 from datetime import datetime, timedelta
-from playwright.async_api import Page, BrowserContext
 from bs4 import BeautifulSoup
 
 from .base_agent import BaseTournamentAgent
 from ..models import Tournament, TournamentSource
+from ..browser.manager import NotteSession, NotteContext
 
 
 class ASJJFAgent(BaseTournamentAgent):
-    """Agent for scraping tournaments from ASJJF using Playwright."""
+    """Agent for scraping tournaments from ASJJF using Notte AI."""
 
     @property
     def source(self) -> TournamentSource:
@@ -40,7 +40,7 @@ class ASJJFAgent(BaseTournamentAgent):
         """ASJJF events page is public, no login needed."""
         return False
 
-    async def _check_logged_in(self, page: Page) -> bool:
+    async def _check_logged_in(self, page: NotteSession) -> bool:
         """Check if already logged in to ASJJF."""
         try:
             await page.goto(self.base_url, wait_until='domcontentloaded')
@@ -69,7 +69,7 @@ class ASJJFAgent(BaseTournamentAgent):
             print(f"Error checking ASJJF login status: {e}")
             return False
 
-    async def _login(self, page: Page, context: BrowserContext) -> bool:
+    async def _login(self, page: NotteSession, context: NotteContext) -> bool:
         """Login to ASJJF."""
         email, password = self.get_credentials()
         if not email or not password:
@@ -141,7 +141,7 @@ class ASJJFAgent(BaseTournamentAgent):
             print(f"ASJJF login error: {e}")
             return False
 
-    async def _scrape_events_page(self, page: Page, location: Optional[str] = None) -> List[Tournament]:
+    async def _scrape_events_page(self, page: NotteSession, location: Optional[str] = None) -> List[Tournament]:
         """Scrape tournaments from ASJJF events calendar page.
 
         Location can be a single country or comma-separated list (e.g., "Malaysia,Taiwan")

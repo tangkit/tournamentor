@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Tournamentor API",
-    description="AI-powered BJJ and Judo tournament aggregator using Playwright",
+    description="AI-powered BJJ and Judo tournament aggregator using Notte AI",
     version="2.0.0",
     lifespan=lifespan
 )
@@ -60,8 +60,8 @@ async def root():
     return {
         "name": "Tournamentor API",
         "version": "2.0.0",
-        "description": "AI-powered BJJ and Judo tournament aggregator using Playwright",
-        "scraping_engine": "Playwright",
+        "description": "AI-powered BJJ and Judo tournament aggregator using Notte AI",
+        "scraping_engine": "Notte AI",
         "endpoints": {
             "chat": "/api/chat",
             "search": "/api/tournaments/search",
@@ -197,7 +197,7 @@ async def get_sources():
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "healthy", "scraping_engine": "playwright"}
+    return {"status": "healthy", "scraping_engine": "notte-ai"}
 
 
 if __name__ == "__main__":

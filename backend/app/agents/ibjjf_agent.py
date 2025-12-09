@@ -1,15 +1,15 @@
 import re
 from typing import List, Optional
 from datetime import datetime, timedelta
-from playwright.async_api import Page, BrowserContext
 from bs4 import BeautifulSoup
 
 from .base_agent import BaseTournamentAgent
 from ..models import Tournament, TournamentSource
+from ..browser.manager import NotteSession, NotteContext
 
 
 class IBJJFAgent(BaseTournamentAgent):
-    """Agent for scraping tournaments from IBJJF using Playwright."""
+    """Agent for scraping tournaments from IBJJF using Notte AI."""
 
     @property
     def source(self) -> TournamentSource:
@@ -40,7 +40,7 @@ class IBJJFAgent(BaseTournamentAgent):
         """IBJJF events page is public, no login needed."""
         return False
 
-    async def _check_logged_in(self, page: Page) -> bool:
+    async def _check_logged_in(self, page: NotteSession) -> bool:
         """Check if already logged in to IBJJF."""
         try:
             await page.goto(self.base_url, wait_until='domcontentloaded')
@@ -71,7 +71,7 @@ class IBJJFAgent(BaseTournamentAgent):
             print(f"Error checking IBJJF login status: {e}")
             return False
 
-    async def _login(self, page: Page, context: BrowserContext) -> bool:
+    async def _login(self, page: NotteSession, context: NotteContext) -> bool:
         """Login to IBJJF."""
         email, password = self.get_credentials()
         if not email or not password:
@@ -149,7 +149,7 @@ class IBJJFAgent(BaseTournamentAgent):
             print(f"IBJJF login error: {e}")
             return False
 
-    async def _scrape_events_page(self, page: Page, location: Optional[str] = None) -> List[Tournament]:
+    async def _scrape_events_page(self, page: NotteSession, location: Optional[str] = None) -> List[Tournament]:
         """Scrape tournaments from IBJJF championships page.
 
         Location can be a single country or comma-separated list (e.g., "Malaysia,Taiwan")
@@ -239,7 +239,7 @@ class IBJJFAgent(BaseTournamentAgent):
 
         return tournaments
 
-    async def _parse_events_from_page(self, page: Page, target_country: Optional[str] = None) -> List[Tournament]:
+    async def _parse_events_from_page(self, page: NotteSession, target_country: Optional[str] = None) -> List[Tournament]:
         """Parse event cards from the current page view."""
         tournaments = []
 

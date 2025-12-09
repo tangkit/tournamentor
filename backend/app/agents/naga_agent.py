@@ -1,15 +1,15 @@
 import re
 from typing import List, Optional
 from datetime import datetime, timedelta
-from playwright.async_api import Page, BrowserContext
 from bs4 import BeautifulSoup
 
 from .base_agent import BaseTournamentAgent
 from ..models import Tournament, TournamentSource
+from ..browser.manager import NotteSession, NotteContext
 
 
 class NAGAAgent(BaseTournamentAgent):
-    """Agent for scraping tournaments from NAGA using Playwright (no login required)."""
+    """Agent for scraping tournaments from NAGA using Notte AI (no login required)."""
 
     @property
     def source(self) -> TournamentSource:
@@ -40,15 +40,15 @@ class NAGAAgent(BaseTournamentAgent):
     def password_env_var(self) -> str:
         return "NAGA_PASSWORD"
 
-    async def _check_logged_in(self, page: Page) -> bool:
+    async def _check_logged_in(self, page: NotteSession) -> bool:
         """Not required for NAGA - public page."""
         return True
 
-    async def _login(self, page: Page, context: BrowserContext) -> bool:
+    async def _login(self, page: NotteSession, context: NotteContext) -> bool:
         """Not required for NAGA - public page."""
         return True
 
-    async def _scrape_events_page(self, page: Page, location: Optional[str] = None) -> List[Tournament]:
+    async def _scrape_events_page(self, page: NotteSession, location: Optional[str] = None) -> List[Tournament]:
         """Scrape tournaments from NAGA events page.
 
         Location can be a single country or comma-separated list (e.g., "Malaysia,Taiwan")
