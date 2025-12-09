@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import List, Optional
 from fastapi import FastAPI, HTTPException
@@ -17,8 +18,18 @@ from .services.tournament_service import TournamentService
 from .services.chat_service import ChatService
 from .browser.manager import cleanup_browser
 
-# Load environment variables
-load_dotenv()
+# Load environment variables from backend/.env
+# Use the directory where this file is located to find the .env file
+_backend_dir = Path(__file__).resolve().parent.parent
+_env_path = _backend_dir / ".env"
+load_dotenv(_env_path)
+
+# Debug: Print if NOTTE_API_KEY was loaded
+_notte_key = os.getenv("NOTTE_API_KEY")
+if _notte_key:
+    print(f"[Config] NOTTE_API_KEY loaded (length: {len(_notte_key)})")
+else:
+    print(f"[Config] WARNING: NOTTE_API_KEY not found in {_env_path}")
 
 
 @asynccontextmanager
