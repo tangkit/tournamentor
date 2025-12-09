@@ -22,32 +22,26 @@ class NotteSession:
         return self._session
 
     async def goto(self, url: str, wait_until: str = 'domcontentloaded') -> None:
-        """Navigate to a URL using available Notte method."""
+        """Navigate to a URL using Notte execute method."""
         print(f"[Notte] goto: Navigating to {url}")
         try:
-            # Try different navigation methods that Notte SDK might provide
-            if hasattr(self._session, 'goto'):
-                self._session.goto(url)
-            elif hasattr(self._session, 'navigate'):
-                self._session.navigate(url)
-            elif hasattr(self._session, 'act'):
-                # Use natural language action as fallback
-                self._session.act(f"navigate to {url}")
-            else:
-                # List available methods for debugging
-                methods = [m for m in dir(self._session) if not m.startswith('_')]
-                raise AttributeError(f"No navigation method found. Available: {methods}")
+            # Notte uses execute with action type 'goto'
+            result = self._session.execute({"type": "goto", "url": url})
             self._current_url = url
             print(f"[Notte] goto: Navigation completed")
+            if result:
+                print(f"[Notte] goto: Result: {result}")
         except Exception as e:
             print(f"[Notte] goto: Navigation failed: {e}")
             raise
 
     async def action(self, instruction: str) -> Any:
-        """Execute a natural language action on the page."""
+        """Execute a natural language action on the page using observe/execute."""
         print(f"[Notte] action: Executing '{instruction}'")
         try:
-            result = self._session.act(instruction)
+            # First observe to get available actions, then execute the instruction
+            # Or use execute directly with type 'action'
+            result = self._session.execute({"type": "action", "instruction": instruction})
             print(f"[Notte] action: Completed successfully")
             if result:
                 print(f"[Notte] action: Result type={type(result).__name__}")
