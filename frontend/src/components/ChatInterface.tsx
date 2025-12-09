@@ -7,18 +7,52 @@ interface ChatInterfaceProps {
   onTournamentsReceived: (tournaments: Tournament[]) => void;
 }
 
+// Local storage key for recent queries
+const RECENT_QUERIES_KEY = 'tournamentor_recent_queries';
+const MAX_RECENT_QUERIES = 5;
+
+// Get recent queries from localStorage
+const getRecentQueries = (): string[] => {
+  try {
+    const stored = localStorage.getItem(RECENT_QUERIES_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+};
+
+// Save a query to recent queries
+const saveRecentQuery = (query: string) => {
+  try {
+    const recent = getRecentQueries();
+    // Remove if already exists (to move to front)
+    const filtered = recent.filter(q => q.toLowerCase() !== query.toLowerCase());
+    // Add to front
+    const updated = [query, ...filtered].slice(0, MAX_RECENT_QUERIES);
+    localStorage.setItem(RECENT_QUERIES_KEY, JSON.stringify(updated));
+  } catch {
+    // Ignore localStorage errors
+  }
+};
+
 export default function ChatInterface({ onTournamentsReceived }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: '1',
       role: 'assistant',
-      content: "Hello! I'm Tournamentor, your AI assistant for finding BJJ and Judo tournaments. I can search Smoothcomp, IBJJF, ASJJF, NAGA, and Grappling Industries for upcoming competitions.\n\nTry asking me things like:\n- \"Find tournaments in California\"\n- \"Show me IBJJF events\"\n- \"What competitions are happening in Asia?\"\n\nHow can I help you find your next competition?",
+      content: "Hello! I'm Tournamentor, your AI assistant for finding BJJ and Judo tournaments. I can search Smoothcomp, IBJJF, ASJJF, and NAGA for upcoming competitions.\n\nTry asking me things like:\n- \"Find tournaments in Malaysia and Taiwan\"\n- \"Show me IBJJF events in USA\"\n- \"What competitions are in Asia in January 2026?\"\n\nHow can I help you find your next competition?",
       timestamp: new Date(),
     },
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [recentQueries, setRecentQueries] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Load recent queries on mount
+  useEffect(() => {
+    setRecentQueries(getRecentQueries());
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -42,6 +76,10 @@ export default function ChatInterface({ onTournamentsReceived }: ChatInterfacePr
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
+
+    // Save to recent queries
+    saveRecentQuery(userMessage.content);
+    setRecentQueries(getRecentQueries());
 
     try {
       const history = messages.map((m) => ({
@@ -81,12 +119,17 @@ export default function ChatInterface({ onTournamentsReceived }: ChatInterfacePr
     }
   };
 
-  const quickQueries = [
-    "Find all tournaments",
-    "Show IBJJF events",
-    "Tournaments in USA",
-    "Asian competitions",
+  const defaultQueries = [
+    "Find tournaments in Malaysia and Taiwan",
+    "Show IBJJF events in USA",
+    "Asian competitions in January 2026",
+    "Smoothcomp tournaments in Singapore",
   ];
+
+  // Show recent queries if available, otherwise show defaults
+  const displayQueries = recentQueries.length > 0
+    ? recentQueries
+    : defaultQueries;
 
   return (
     <div className="flex flex-col h-full bg-white rounded-xl shadow-lg border border-gray-200">
@@ -158,12 +201,14 @@ export default function ChatInterface({ onTournamentsReceived }: ChatInterfacePr
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Quick queries */}
+      {/* Quick queries / Recent searches */}
       {messages.length <= 2 && (
         <div className="px-4 pb-2">
-          <p className="text-xs text-gray-500 mb-2">Quick searches:</p>
+          <p className="text-xs text-gray-500 mb-2">
+            {recentQueries.length > 0 ? 'Recent searches:' : 'Try these:'}
+          </p>
           <div className="flex flex-wrap gap-2">
-            {quickQueries.map((query) => (
+            {displayQueries.map((query) => (
               <button
                 key={query}
                 onClick={() => setInput(query)}
