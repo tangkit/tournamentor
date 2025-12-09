@@ -147,6 +147,64 @@ class SmoothcompAgent(BaseTournamentAgent):
             print(f"Login error: {e}")
             return False
 
+    async def _apply_country_filter(self, page: Page, location: str) -> bool:
+        """Apply country filter on Smoothcomp events page."""
+        try:
+            print(f"[Smoothcomp] Applying country filter for: {location}")
+
+            # Click on the country dropdown
+            country_dropdown = await page.query_selector('select[class*="country"], [class*="select-countries"], [placeholder*="country" i]')
+            if country_dropdown:
+                await country_dropdown.click()
+                await page.wait_for_timeout(500)
+
+            # Try to find and click on the country filter dropdown
+            # Look for "Select countries" button or similar
+            filter_buttons = await page.query_selector_all('button, [role="combobox"], [class*="dropdown"]')
+            for btn in filter_buttons:
+                text = await btn.text_content()
+                if text and ('country' in text.lower() or 'select' in text.lower()):
+                    await btn.click()
+                    await page.wait_for_timeout(1000)
+                    break
+
+            # Type the country name to filter
+            location_lower = location.lower()
+
+            # Try to find an input field for filtering
+            input_field = await page.query_selector('input[type="text"], input[placeholder*="search" i], input[placeholder*="filter" i]')
+            if input_field:
+                await input_field.fill(location)
+                await page.wait_for_timeout(500)
+
+            # Try to click on matching country option
+            options = await page.query_selector_all('[role="option"], [class*="option"], li')
+            for opt in options:
+                text = await opt.text_content()
+                if text and location_lower in text.lower():
+                    await opt.click()
+                    print(f"[Smoothcomp] Selected country filter: {text}")
+                    await page.wait_for_timeout(2000)
+                    return True
+
+            # If no dropdown found, try URL-based filtering
+            # Smoothcomp might support URL params like ?country=Malaysia
+            current_url = page.url
+            if '?' not in current_url:
+                filter_url = f"{current_url}?country={location}"
+            else:
+                filter_url = f"{current_url}&country={location}"
+
+            print(f"[Smoothcomp] Trying URL filter: {filter_url}")
+            await page.goto(filter_url, wait_until='domcontentloaded')
+            await page.wait_for_timeout(2000)
+
+            return True
+
+        except Exception as e:
+            print(f"[Smoothcomp] Could not apply country filter: {e}")
+            return False
+
     async def _scrape_events_page(self, page: Page, location: Optional[str] = None) -> List[Tournament]:
         """Scrape tournaments from Smoothcomp events page, clicking into each for details."""
         tournaments = []
@@ -156,6 +214,10 @@ class SmoothcompAgent(BaseTournamentAgent):
             await page.goto(self.events_url, wait_until='domcontentloaded')
             await page.wait_for_timeout(3000)
             print(f"[Smoothcomp] Page loaded, current URL: {page.url}")
+
+            # If location specified, try to use Smoothcomp's country filter
+            if location:
+                await self._apply_country_filter(page, location)
 
             # Scroll to load more events
             print("[Smoothcomp] Scrolling to load more events...")
@@ -228,93 +290,94 @@ class SmoothcompAgent(BaseTournamentAgent):
 
             content = await page.content()
             soup = BeautifulSoup(content, 'lxml')
+            page_text = soup.get_text(separator=' ', strip=True)
 
-            # Extract event name from h1 or title
+            # Extract event name from h1 (exclude dates that might be in h1)
             name = None
-            name_elem = soup.select_one('h1, h2, [class*="event-title"], [class*="event-name"]')
-            if name_elem:
-                name = name_elem.get_text(strip=True)
+            h1 = soup.select_one('h1')
+            if h1:
+                name = h1.get_text(strip=True)
+                # Clean up name - remove embedded dates
+                name = re.sub(r'\d{1,2}\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*.*$', '', name, flags=re.IGNORECASE).strip()
             if not name:
                 title = soup.select_one('title')
                 if title:
-                    name = title.get_text(strip=True).split(' - ')[0].strip()
+                    name = title.get_text(strip=True).split(' - ')[0].split('|')[0].strip()
             if not name:
                 return None
 
-            # Extract location - look for Location section or address
+            # Extract location - look for address with country
             location = "TBD"
-            location_selectors = [
-                '[class*="location"] address',
-                '[class*="location"]',
-                'address',
-            ]
-            for selector in location_selectors:
-                loc_elem = soup.select_one(selector)
-                if loc_elem:
-                    location = loc_elem.get_text(separator=', ', strip=True)
-                    if location and len(location) > 5:
-                        break
-
-            # Look for text containing city, country pattern
-            if location == "TBD":
-                # Try to find location in page text
-                page_text = soup.get_text()
-                loc_match = re.search(r'Location[:\s]+([^\n]+)', page_text)
+            # Look for text after "Location" header that contains address
+            loc_match = re.search(r'Petaling Jaya[^,]*,\s*([^,]+,\s*)?Malaysia', page_text, re.IGNORECASE)
+            if loc_match:
+                location = loc_match.group(0)
+            else:
+                # Generic pattern: City, State/Province, Country
+                loc_match = re.search(r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),?\s*(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)?,?\s*(Malaysia|Singapore|Indonesia|Thailand|Philippines|Australia|Japan|USA|India|Hong Kong|South Korea|Kazakhstan|United Arab Emirates|Uzbekistan)', page_text)
                 if loc_match:
-                    location = loc_match.group(1).strip()
+                    location = loc_match.group(0).strip()
 
-            # Extract organizer
+            # If still no location, look for "Malaysia" and nearby text
+            if location == "TBD":
+                countries = ['Malaysia', 'Singapore', 'Indonesia', 'Thailand', 'Philippines', 'Australia', 'Japan', 'USA', 'India', 'Hong Kong']
+                for country in countries:
+                    if country.lower() in page_text.lower():
+                        # Find context around country name
+                        match = re.search(rf'([A-Z][a-z]+(?:[\s,]+[A-Z][a-z]+){{0,3}}[\s,]+){country}', page_text, re.IGNORECASE)
+                        if match:
+                            location = match.group(0).strip()
+                            break
+                        else:
+                            location = country
+
+            # Extract organizer - look for "Organizer" section
             organizer = None
-            org_selectors = [
-                '[class*="organizer"]',
-                '[class*="merchant"]',
-                '[class*="host"]',
-            ]
-            for selector in org_selectors:
-                org_elem = soup.select_one(selector)
-                if org_elem:
-                    organizer = org_elem.get_text(strip=True)
-                    # Clean up organizer name
-                    organizer = re.sub(r'\d+\s*(year|event).*$', '', organizer, flags=re.IGNORECASE).strip()
-                    if organizer:
-                        break
+            org_match = re.search(r'Organizer[^:]*[:\s]+([A-Za-z][A-Za-z\s]+?)(?:\d|\bon\b|$)', page_text)
+            if org_match:
+                organizer = org_match.group(1).strip()
+            else:
+                # Try to find text after "merchant" or "organizer"
+                org_match = re.search(r'(?:merchant|organizer)[:\s]+([A-Za-z][A-Za-z\s]+?)(?:\d|year|event|on\s+Smooth)', page_text, re.IGNORECASE)
+                if org_match:
+                    organizer = org_match.group(1).strip()
 
-            # Extract fees - look for price patterns (RM, $, €, etc.)
+            # Extract fees - look for price patterns with context
             fees = None
-            page_text = soup.get_text()
-            # Look for price patterns like "RM185", "$85", "€75", etc.
-            price_matches = re.findall(r'(RM|USD|\$|€|£)\s*(\d+(?:\.\d{2})?)', page_text)
+            # Look for registration fees like "RM185 - Kids", "$85 - Adults"
+            price_matches = re.findall(r'(RM|USD|\$|€|£|SGD|THB|IDR|PHP|AUD|JPY)\s*(\d+(?:,\d{3})*(?:\.\d{2})?)', page_text)
             if price_matches:
-                prices = sorted(set([f"{m[0]}{m[1]}" for m in price_matches]))
-                if len(prices) > 1:
-                    fees = f"{prices[0]} - {prices[-1]}"
-                elif prices:
-                    fees = prices[0]
+                # Convert to numeric for sorting
+                prices = []
+                for currency, amount in price_matches:
+                    try:
+                        num = float(amount.replace(',', ''))
+                        prices.append((num, f"{currency}{amount}"))
+                    except:
+                        pass
+                if prices:
+                    prices.sort(key=lambda x: x[0])
+                    if len(prices) > 1:
+                        fees = f"{prices[0][1]} - {prices[-1][1]}"
+                    else:
+                        fees = prices[0][1]
 
-            # Extract date - look for "Event dates" or date patterns
+            # Extract date - look for "Event dates" section or date patterns
             date_str = None
-            date_selectors = [
-                '[class*="event-date"]',
-                '[class*="dates"]',
-                'time',
-            ]
-            for selector in date_selectors:
-                date_elem = soup.select_one(selector)
-                if date_elem:
-                    date_str = date_elem.get_text(strip=True)
-                    if date_str:
-                        break
-
-            # Try to find date in text like "January 10 & 11, 2026" or "10 Jan - 11 Jan"
-            if not date_str:
-                date_match = re.search(r'(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*(?:\s*[-&]\s*\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*)?(?:\s*,?\s*\d{4})?)', page_text, re.IGNORECASE)
+            # Look for "Event dates" followed by date
+            date_match = re.search(r'Event\s+dates?\s*[:\s]+(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*)', page_text, re.IGNORECASE)
+            if date_match:
+                date_str = date_match.group(1)
+            else:
+                # Look for date pattern with year like "January 10 & 11, 2026"
+                date_match = re.search(r'(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:\s*[&,-]\s*\d{1,2})?,?\s*\d{4}', page_text, re.IGNORECASE)
                 if date_match:
-                    date_str = date_match.group(1)
+                    date_str = date_match.group(0)
                 else:
-                    # Try "2026 January 10" format
-                    date_match = re.search(r'(\d{4}\s+[A-Za-z]+\s+\d{1,2})', page_text)
+                    # Look for "10 Jan" pattern
+                    date_match = re.search(r'(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*(?:\s*[-&]\s*\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*)?\s*(?:,?\s*(\d{4}))?', page_text, re.IGNORECASE)
                     if date_match:
-                        date_str = date_match.group(1)
+                        date_str = date_match.group(0)
 
             date = self._parse_date(date_str) if date_str else "TBD"
 
