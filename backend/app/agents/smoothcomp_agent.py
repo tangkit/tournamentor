@@ -224,8 +224,33 @@ class SmoothcompAgent(BaseTournamentAgent):
                     return False
 
                 # Loop through each country and add it as a tag
-                for country in countries:
+                for i, country in enumerate(countries):
                     await page.wait_for_timeout(500)
+
+                    # Re-click the country filter input before typing (after first country, focus is lost)
+                    if i > 0:
+                        try:
+                            # Re-find the country filter section specifically (not generic inputs)
+                            refound = False
+                            filter_sections = await page.query_selector_all('div.multiselect, div[class*="filter"], div[class*="select"]')
+                            for section in filter_sections:
+                                try:
+                                    section_text = await section.inner_text()
+                                    if 'countries' in section_text.lower() or 'country' in section_text.lower():
+                                        input_elem = await section.query_selector('input')
+                                        if input_elem:
+                                            await input_elem.click()
+                                            refound = True
+                                            print(f"[Smoothcomp] Re-clicked country filter input for '{country}'")
+                                            await page.wait_for_timeout(300)
+                                            break
+                                except Exception:
+                                    continue
+
+                            if not refound:
+                                print(f"[Smoothcomp] Could not re-find country filter input for '{country}'")
+                        except Exception as e:
+                            print(f"[Smoothcomp] Could not re-click input: {e}")
 
                     # Type the country name
                     await page.keyboard.type(country, delay=50)
