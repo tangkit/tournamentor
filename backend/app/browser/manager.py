@@ -247,12 +247,10 @@ class BrowserManager:
             await self._initialize()
 
         # Create Notte session
-        # open_viewer=True opens a live browser view for debugging
-        open_viewer = not self.headless
-        print(f"[BrowserManager] Creating session (headless={self.headless}, open_viewer={open_viewer})...")
+        # Note: Notte cloud only supports headless=True (non-headless not supported yet)
+        print(f"[BrowserManager] Creating session (headless=True, cloud mode)...")
         session = self._client.Session(
-            headless=self.headless,
-            open_viewer=open_viewer,
+            headless=True,  # Notte cloud only supports headless mode
             timeout_minutes=15,
             browser_type='chrome-nightly',  # Required for solve_captchas
             proxies=True,  # Required when using chrome-nightly with solve_captchas
@@ -295,7 +293,14 @@ class BrowserManager:
 
     def _force_close_session(self, session):
         """Force close a session, trying multiple methods."""
-        session_id = getattr(session, 'session_id', None)
+        # Try to get session_id - Notte SDK raises ValueError if session wasn't started
+        try:
+            session_id = session.session_id
+        except (ValueError, AttributeError):
+            # Session was never started, nothing to close
+            print(f"[BrowserManager] Session was not started, nothing to close")
+            return
+
         if not session_id:
             return
 
