@@ -147,106 +147,46 @@ class SmoothcompAgent(BaseTournamentAgent):
             return False
 
     async def _apply_country_filter(self, page: Page, location: str) -> bool:
-        """Apply country filter on Smoothcomp events page using tag-based multiselect."""
+        """Apply country filter on Smoothcomp events page using tag-based input."""
         try:
-            print(f"[Smoothcomp] === APPLYING COUNTRY FILTER (TAG-BASED) ===")
+            print(f"[Smoothcomp] === APPLYING COUNTRY FILTER (TAGS INPUT) ===")
             print(f"[Smoothcomp] Looking for country: {location}")
-            print(f"[Smoothcomp] Current URL: {page.url}")
 
             # Wait for page to be fully loaded
             await page.wait_for_timeout(2000)
 
-            # The country filter is a tag-based multiselect
-            # 1. Click the input to focus it
-            # 2. Type the country name to filter the dropdown
-            # 3. Click the matching option to add it as a tag
+            # Find the tags input field for countries
+            input_selector = 'input[aria-placeholder="Select countries"], input.multiselect-tags-search'
 
-            # Find and click the multiselect input
-            country_input_selectors = [
-                'input[aria-placeholder="Select countries"]',
-                'input.multiselect-tags-search',
-                '.multiselect-tags input',
-            ]
+            try:
+                # Click on the input to focus it
+                await page.click(input_selector, timeout=5000)
+                print(f"[Smoothcomp] Clicked country input field")
+                await page.wait_for_timeout(500)
 
-            input_element = None
-            for selector in country_input_selectors:
-                try:
-                    print(f"[Smoothcomp] Trying input selector: {selector}")
-                    input_element = await page.query_selector(selector)
-                    if input_element:
-                        print(f"[Smoothcomp] Found country input with: {selector}")
-                        break
-                except Exception as e:
-                    print(f"[Smoothcomp] Error with selector {selector}: {e}")
-                    continue
+                # Type the country name
+                await page.keyboard.type(location, delay=50)
+                print(f"[Smoothcomp] Typed '{location}'")
+                await page.wait_for_timeout(1000)
 
-            if not input_element:
-                print("[Smoothcomp] WARNING: Could not find country filter input!")
-                return False
-
-            # Click the input to focus and show dropdown
-            await input_element.click()
-            await page.wait_for_timeout(500)
-            print(f"[Smoothcomp] Clicked country input, typing: {location}")
-
-            # Type the country name
-            await page.keyboard.type(location, delay=50)
-            await page.wait_for_timeout(1000)
-
-            # Look for the dropdown option containing the country name and click it
-            # Smoothcomp uses a multiselect dropdown with options
-            option_selectors = [
-                f'.multiselect-option:has-text("{location}")',
-                f'[role="option"]:has-text("{location}")',
-                f'.multiselect-options li:has-text("{location}")',
-                f'li[aria-selected]:has-text("{location}")',
-                f'span:has-text("{location}")',
-            ]
-
-            option_clicked = False
-            for opt_selector in option_selectors:
-                try:
-                    print(f"[Smoothcomp] Looking for option: {opt_selector}")
-                    # Use page.click with text matching for more reliability
-                    options = await page.query_selector_all(opt_selector)
-                    print(f"[Smoothcomp] Found {len(options)} elements matching")
-                    for option in options:
-                        text = await option.text_content()
-                        if text and location.lower() in text.lower():
-                            print(f"[Smoothcomp] Clicking option: '{text}'")
-                            await option.click()
-                            option_clicked = True
-                            await page.wait_for_timeout(2000)
-                            break
-                    if option_clicked:
-                        break
-                except Exception as e:
-                    print(f"[Smoothcomp] Error with option selector {opt_selector}: {e}")
-                    continue
-
-            if not option_clicked:
-                # Try keyboard navigation - press down arrow and enter
-                print("[Smoothcomp] Trying keyboard: ArrowDown + Enter")
-                await page.keyboard.press('ArrowDown')
-                await page.wait_for_timeout(300)
+                # Press Enter to select the first matching option (adds it as a tag)
                 await page.keyboard.press('Enter')
+                print(f"[Smoothcomp] Pressed Enter to add tag")
+                await page.wait_for_timeout(3000)
+
+                # Click outside to close any dropdown and apply filter
+                await page.click('body')
                 await page.wait_for_timeout(2000)
 
-            # Close dropdown by clicking elsewhere or pressing Escape
-            await page.keyboard.press('Escape')
-            await page.wait_for_timeout(1000)
+                print(f"[Smoothcomp] Country filter applied for: {location}")
+                return True
 
-            # Wait for page to reload with filtered results
-            await page.wait_for_timeout(2000)
-
-            print(f"[Smoothcomp] After filter, URL: {page.url}")
-            print(f"[Smoothcomp] === COUNTRY FILTER COMPLETED ===")
-            return True
+            except Exception as e:
+                print(f"[Smoothcomp] Could not interact with country filter: {e}")
+                return False
 
         except Exception as e:
             print(f"[Smoothcomp] Country filter error: {e}")
-            import traceback
-            traceback.print_exc()
             return False
 
     async def _scrape_events_page(self, page: Page, location: Optional[str] = None) -> List[Tournament]:
