@@ -149,11 +149,18 @@ class IBJJFAgent(BaseTournamentAgent):
             print(f"IBJJF login error: {e}")
             return False
 
-    async def _scrape_events_page(self, page: NotteSession, location: Optional[str] = None) -> List[Tournament]:
+    async def _scrape_events_page(
+        self,
+        page: NotteSession,
+        location: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None
+    ) -> List[Tournament]:
         """Scrape tournaments from IBJJF championships page.
 
         Location can be a single country or comma-separated list (e.g., "Malaysia,Taiwan")
         Uses the "Search By" bar to search for each country.
+        Note: date_from and date_to are accepted but not used (IBJJF doesn't have date filters)
         """
         tournaments = []
         seen_ids = set()

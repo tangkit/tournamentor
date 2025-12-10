@@ -215,10 +215,66 @@ class SmoothcompAgent(BaseTournamentAgent):
             traceback.print_exc()
             return False
 
-    async def _scrape_events_page(self, page: NotteSession, location: Optional[str] = None) -> List[Tournament]:
+    async def _apply_date_filter(self, page: NotteSession, date_from: str, date_to: str) -> bool:
+        """Apply date filter on Smoothcomp events page using Notte natural language actions.
+
+        Args:
+            page: Notte session page wrapper
+            date_from: Start date in YYYY-MM-DD format
+            date_to: End date in YYYY-MM-DD format
+        """
+        try:
+            print(f"[Smoothcomp] === APPLYING DATE FILTER ===")
+            print(f"[Smoothcomp] Date range: {date_from} to {date_to}")
+
+            # Wait for page to be fully loaded
+            await page.wait_for_timeout(1000)
+
+            # Click on start date field and enter date
+            if date_from:
+                print(f"[Smoothcomp] Setting start date: {date_from}")
+                await page.action("click on the 'Start date' input field")
+                await page.wait_for_timeout(500)
+                await page.action(f"type '{date_from}' in the Start date field")
+                await page.wait_for_timeout(500)
+                # Press Enter or click elsewhere to confirm
+                await page.action("press Enter key")
+                await page.wait_for_timeout(500)
+
+            # Click on end date field and enter date
+            if date_to:
+                print(f"[Smoothcomp] Setting end date: {date_to}")
+                await page.action("click on the 'End date' input field")
+                await page.wait_for_timeout(500)
+                await page.action(f"type '{date_to}' in the End date field")
+                await page.wait_for_timeout(500)
+                # Press Enter or click elsewhere to confirm
+                await page.action("press Enter key")
+                await page.wait_for_timeout(1000)
+
+            print(f"[Smoothcomp] Date filter applied successfully")
+            return True
+
+        except Exception as e:
+            print(f"[Smoothcomp] Date filter error: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    async def _scrape_events_page(
+        self,
+        page: NotteSession,
+        location: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None
+    ) -> List[Tournament]:
         """Scrape tournaments from Smoothcomp events page, clicking into each for details.
 
-        Location can be a single country or comma-separated list (e.g., "Malaysia,Taiwan")
+        Args:
+            page: Notte session page wrapper
+            location: Country filter - single country or comma-separated list (e.g., "Malaysia,Taiwan")
+            date_from: Start date filter (YYYY-MM-DD)
+            date_to: End date filter (YYYY-MM-DD)
         """
         tournaments = []
 
@@ -238,6 +294,12 @@ class SmoothcompAgent(BaseTournamentAgent):
 
             # Handle cookie popup first
             await self._handle_cookie_popup(page)
+
+            # Apply date filter first (if provided)
+            if date_from or date_to:
+                print(f"[Smoothcomp] Applying date filter: {date_from} to {date_to}")
+                await self._apply_date_filter(page, date_from, date_to)
+                await page.wait_for_timeout(2000)  # Wait for results to update
 
             # Apply country filter using natural language actions
             if location:

@@ -58,7 +58,11 @@ class TournamentService:
                 agent = self.agents[source]
                 print(f"[TournamentService] Starting scrape for {source.value}...")
                 try:
-                    result = await agent.scrape_tournaments(effective_location)
+                    result = await agent.scrape_tournaments(
+                        location=effective_location,
+                        date_from=date_from,
+                        date_to=date_to
+                    )
                     if isinstance(result, list):
                         print(f"[TournamentService] {source.value}: Found {len(result)} tournaments")
                         all_tournaments.extend(result)

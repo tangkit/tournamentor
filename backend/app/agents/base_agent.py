@@ -71,17 +71,26 @@ class BaseTournamentAgent(ABC):
         email, password = self.get_credentials()
         return bool(email and password)
 
-    async def scrape_tournaments(self, location: Optional[str] = None) -> List[Tournament]:
+    async def scrape_tournaments(
+        self,
+        location: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None
+    ) -> List[Tournament]:
         """
         Use Notte AI to browse and extract tournament data.
 
         Args:
             location: Optional location filter
+            date_from: Start date filter (YYYY-MM-DD)
+            date_to: End date filter (YYYY-MM-DD)
 
         Returns:
             List of Tournament objects
         """
         print(f"[{self.source.value}] Starting scrape, requires_login={self.requires_login}")
+        if date_from or date_to:
+            print(f"[{self.source.value}] Date filter: {date_from} to {date_to}")
 
         if self.requires_login and not self.has_credentials():
             print(f"[{self.source.value}] No credentials configured, skipping")
@@ -120,7 +129,7 @@ class BaseTournamentAgent(ABC):
 
                 # Navigate to events page and scrape
                 print(f"[{self.source.value}] Scraping events page...")
-                tournaments = await self._scrape_events_page(page, location)
+                tournaments = await self._scrape_events_page(page, location, date_from, date_to)
 
                 if tournaments:
                     print(f"[{self.source.value}] Found {len(tournaments)} tournaments")
@@ -154,13 +163,21 @@ class BaseTournamentAgent(ABC):
         pass
 
     @abstractmethod
-    async def _scrape_events_page(self, page: NotteSession, location: Optional[str] = None) -> List[Tournament]:
+    async def _scrape_events_page(
+        self,
+        page: NotteSession,
+        location: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None
+    ) -> List[Tournament]:
         """
         Scrape tournaments from the events page.
 
         Args:
             page: Notte session page wrapper (already logged in)
             location: Optional location filter
+            date_from: Start date filter (YYYY-MM-DD)
+            date_to: End date filter (YYYY-MM-DD)
 
         Returns:
             List of Tournament objects
