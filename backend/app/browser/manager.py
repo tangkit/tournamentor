@@ -66,22 +66,37 @@ class NotteSession:
 
                 # Try to find matching action
                 instruction_lower = instruction.lower()
-                keywords = [w for w in instruction_lower.split() if len(w) > 2]
+                # Filter out common stop words that would match too broadly
+                stop_words = {'the', 'on', 'in', 'at', 'to', 'for', 'of', 'a', 'an', 'and', 'or', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need', 'dare', 'ought', 'used', 'click', 'type', 'press', 'enter', 'select', 'input', 'field', 'button'}
+                keywords = [w for w in instruction_lower.split() if len(w) > 2 and w not in stop_words]
+                print(f"[Notte] action: Searching with keywords: {keywords}")
+
+                # Require at least 2 keywords to match to avoid false positives
+                best_match = None
+                best_match_count = 0
 
                 for act in actions:
-                    # Check action description/text
+                    # Check action description/text/label
                     act_str = str(act).lower()
                     act_desc = getattr(act, 'description', '').lower() if hasattr(act, 'description') else ''
                     act_text = getattr(act, 'text', '').lower() if hasattr(act, 'text') else ''
+                    act_label = getattr(act, 'text_label', '').lower() if hasattr(act, 'text_label') else ''
 
-                    combined = f"{act_str} {act_desc} {act_text}"
+                    combined = f"{act_str} {act_desc} {act_text} {act_label}"
 
-                    # Match on keywords
-                    if any(kw in combined for kw in keywords):
-                        print(f"[Notte] action: Found matching action: {act}")
-                        result = self._session.execute(act)
-                        print(f"[Notte] action: execute() completed")
-                        return result
+                    # Count how many keywords match
+                    match_count = sum(1 for kw in keywords if kw in combined)
+
+                    if match_count > best_match_count:
+                        best_match = act
+                        best_match_count = match_count
+
+                # Only execute if we have a good match (at least 1 significant keyword)
+                if best_match and best_match_count >= 1 and keywords:
+                    print(f"[Notte] action: Found matching action ({best_match_count}/{len(keywords)} keywords): {best_match}")
+                    result = self._session.execute(best_match)
+                    print(f"[Notte] action: execute() completed")
+                    return result
 
                 print(f"[Notte] action: No match found for keywords: {keywords}")
             else:
