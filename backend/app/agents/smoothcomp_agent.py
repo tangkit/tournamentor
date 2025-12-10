@@ -248,9 +248,9 @@ class SmoothcompAgent(BaseTournamentAgent):
                         page.raw_session.execute(countries_input_action)
                         await page.wait_for_timeout(500)
                     else:
-                        # Fallback: try clicking with natural language
+                        # Fallback: try clicking with natural language - be very specific
                         print(f"[Smoothcomp] Countries input not found in actions, trying fallback...")
-                        await page.action("click on the Countries filter dropdown")
+                        await page.action("click on Select countries")
                         await page.wait_for_timeout(500)
 
                     # Step 2: Type the country name using keyboard
@@ -407,10 +407,14 @@ class SmoothcompAgent(BaseTournamentAgent):
                             page.raw_session.execute(act)
                             return True
 
-                # Fallback: Use natural language action to click date field
+                # Fallback: Use natural language action to click date field - be very specific
                 print(f"[Smoothcomp] Using natural language to click '{full_label}' field...")
                 try:
-                    await page.action(f"click on the {field_name} date input field")
+                    # Use exact placeholder text from the UI
+                    if field_name == "start":
+                        await page.action("click on Start date")
+                    else:
+                        await page.action("click on End date")
                     await page.wait_for_timeout(1000)
                     return True
                 except Exception as e:
