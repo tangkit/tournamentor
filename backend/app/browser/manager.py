@@ -398,12 +398,14 @@ class BrowserManager:
             await self._initialize()
 
         # Create Notte session
-        # Enable open_viewer for debugging (controlled by HEADLESS env var)
-        open_viewer = not self.headless
+        # Disable open_viewer to avoid session expiry race condition
+        # The viewer feature is unstable on free plans and causes 404 errors
+        # Set HEADLESS=false to try enabling viewer (may fail on free plans)
+        open_viewer = False  # Disabled due to session timing issues
         print(f"[BrowserManager] Creating session (headless=True, open_viewer={open_viewer})...")
         session = self._client.Session(
             headless=True,  # Notte cloud only supports headless mode
-            open_viewer=open_viewer,  # Opens browser viewer for debugging
+            open_viewer=open_viewer,  # Disabled - causes session expiry issues
             timeout_minutes=15,
             browser_type='chrome-nightly',  # Required for solve_captchas
             proxies=True,  # Required when using chrome-nightly with solve_captchas
