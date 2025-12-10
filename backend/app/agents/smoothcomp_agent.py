@@ -151,10 +151,45 @@ class SmoothcompAgent(BaseTournamentAgent):
             print("[Smoothcomp] === HANDLING COOKIE POPUP ===")
             print("[Smoothcomp] Waiting 2 seconds for page to settle...")
             await page.wait_for_timeout(2000)
-            print("[Smoothcomp] Attempting to click Accept All cookies button...")
-            await page.action("click on 'Accept All' or 'Accept all cookies' button if visible")
-            print("[Smoothcomp] Cookie popup handled successfully")
-            await page.wait_for_timeout(1000)
+
+            # Use observe to find the Accept button directly
+            for attempt in range(3):
+                print(f"[Smoothcomp] Attempt {attempt+1}: Looking for Accept button...")
+                observation = page.raw_session.observe()
+                actions = []
+                if hasattr(observation, 'space') and hasattr(observation.space, 'actions'):
+                    actions = observation.space.actions
+                elif hasattr(observation, 'actions'):
+                    actions = observation.actions
+
+                # Find Accept button - look for button with "Accept" text_label
+                accept_action = None
+                for act in actions:
+                    act_label = getattr(act, 'text_label', '').lower() if hasattr(act, 'text_label') else ''
+                    act_desc = getattr(act, 'description', '').lower() if hasattr(act, 'description') else ''
+                    act_type = getattr(act, 'type', '').lower()
+
+                    # Look for Accept button (not Decline)
+                    if act_type == 'click' and 'accept' in act_label and 'decline' not in act_label:
+                        accept_action = act
+                        print(f"[Smoothcomp] Found Accept button: {act}")
+                        break
+
+                if accept_action:
+                    try:
+                        page.raw_session.execute(accept_action)
+                        print("[Smoothcomp] Cookie Accept button clicked!")
+                        await page.wait_for_timeout(1500)
+                        return
+                    except Exception as e:
+                        print(f"[Smoothcomp] Click failed: {e}, retrying...")
+                        await page.wait_for_timeout(1000)
+                else:
+                    print("[Smoothcomp] Accept button not found in this attempt")
+                    await page.wait_for_timeout(1000)
+
+            print("[Smoothcomp] Cookie popup may not be present or already handled")
+
         except Exception as e:
             print(f"[Smoothcomp] Cookie popup handling failed or not present: {e}")
             import traceback
