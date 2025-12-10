@@ -310,13 +310,12 @@ class SmoothcompAgent(BaseTournamentAgent):
             return False
 
     async def _apply_date_filter(self, page: NotteSession, date_from: str, date_to: str) -> bool:
-        """Apply date filter on Smoothcomp events page using calendar picker.
+        """Apply date filter on Smoothcomp events page using Notte Agent.
 
-        Smoothcomp uses a calendar dropdown UI:
-        1. Click on date field to open calendar dropdown
-        2. Navigate to correct month/year using arrow buttons
-        3. Click on the specific day number
-        4. Repeat for end date
+        Uses the Notte AI Agent with reasoning capabilities to:
+        1. Find and click on date input fields
+        2. Navigate calendar picker to correct month/year
+        3. Select the target date
 
         Args:
             page: Notte session page wrapper
@@ -324,274 +323,85 @@ class SmoothcompAgent(BaseTournamentAgent):
             date_to: End date in YYYY-MM-DD format
         """
         try:
-            print(f"[Smoothcomp] === APPLYING DATE FILTER (Calendar Picker) ===")
+            print(f"[Smoothcomp] === APPLYING DATE FILTER (Notte Agent) ===")
             print(f"[Smoothcomp] Date range: {date_from} to {date_to}")
 
-            # Wait for page to settle (longer for free plan rate limits)
-            await page.wait_for_timeout(5000)
+            # Wait for page to settle
+            await page.wait_for_timeout(3000)
 
-            # Scroll up to ensure filter inputs are visible
-            await page.evaluate('window.scrollTo(0, 0)')
-            await page.wait_for_timeout(500)
+            # Get the raw Notte session and browser manager
+            from ..browser.manager import get_browser_manager
+            browser_manager = await get_browser_manager()
+            raw_session = page.raw_session
 
-            # Parse dates into components
-            def parse_date(date_str: str) -> tuple:
-                """Parse YYYY-MM-DD into (year, month, day)."""
-                parts = date_str.split('-')
-                return int(parts[0]), int(parts[1]), int(parts[2])
-
-            # Month names for matching calendar header
+            # Parse dates for the agent task
+            from datetime import datetime
             month_names = ['January', 'February', 'March', 'April', 'May', 'June',
                           'July', 'August', 'September', 'October', 'November', 'December']
 
-            async def click_date_field(field_name: str) -> bool:
-                """Click on date field to open calendar."""
-                # Use full label like "Start date" or "End date"
-                full_label = f"{field_name} date".lower()
-                print(f"[Smoothcomp] Looking for '{full_label}' field...")
+            def format_date_for_agent(date_str: str) -> str:
+                """Convert YYYY-MM-DD to human-readable format for agent."""
+                parts = date_str.split('-')
+                year, month, day = int(parts[0]), int(parts[1]), int(parts[2])
+                return f"{month_names[month-1]} {day}, {year}"
 
-                observation = page.raw_session.observe()
-                actions = []
-                if hasattr(observation, 'space') and hasattr(observation.space, 'actions'):
-                    actions = observation.space.actions
-                elif hasattr(observation, 'actions'):
-                    actions = observation.actions
-
-                # First pass: look for exact "Start date" or "End date" label
-                for act in actions:
-                    act_desc = getattr(act, 'description', '').lower() if hasattr(act, 'description') else ''
-                    act_label = getattr(act, 'text_label', '').lower() if hasattr(act, 'text_label') else ''
-                    act_type = getattr(act, 'type', '').lower()
-
-                    # Skip link elements (they have href in description)
-                    if 'href=' in act_desc:
-                        continue
-
-                    # Look for exact match of "start date" or "end date"
-                    if full_label in act_label or full_label in act_desc:
-                        print(f"[Smoothcomp] Found '{full_label}' field: {act}")
-                        page.raw_session.execute(act)
-                        return True
-
-                # Second pass: look for fill/input type actions related to date
-                for act in actions:
-                    act_desc = getattr(act, 'description', '').lower() if hasattr(act, 'description') else ''
-                    act_label = getattr(act, 'text_label', '').lower() if hasattr(act, 'text_label') else ''
-                    act_type = getattr(act, 'type', '').lower()
-
-                    # Skip link elements
-                    if 'href=' in act_desc:
-                        continue
-
-                    # Look for fill/input actions with date-related labels
-                    if act_type == 'fill' and 'date' in act_label:
-                        print(f"[Smoothcomp] Found date input (fill): {act}")
-                        page.raw_session.execute(act)
-                        return True
-
-                # Third pass: look for input[type="date"] or datepicker elements
-                for act in actions:
-                    act_desc = getattr(act, 'description', '').lower() if hasattr(act, 'description') else ''
-                    act_type = getattr(act, 'type', '').lower()
-                    selector = getattr(act, 'selector', None)
-
-                    # Skip link elements
-                    if 'href=' in act_desc:
-                        continue
-
-                    # Check selector for date-related classes
-                    if selector:
-                        css = getattr(selector, 'css_selector', '').lower() if hasattr(selector, 'css_selector') else ''
-                        if 'date' in css or 'picker' in css or 'calendar' in css:
-                            print(f"[Smoothcomp] Found date element by selector: {act}")
-                            page.raw_session.execute(act)
-                            return True
-
-                # Fallback: Use natural language action to click date field - be very specific
-                print(f"[Smoothcomp] Using natural language to click '{full_label}' field...")
-                try:
-                    # Use exact placeholder text from the UI
-                    if field_name == "start":
-                        await page.action("click on Start date")
-                    else:
-                        await page.action("click on End date")
-                    await page.wait_for_timeout(1000)
-                    return True
-                except Exception as e:
-                    print(f"[Smoothcomp] Natural language click failed: {e}")
-
-                # Debug: print available actions to see what's on the page
-                print(f"[Smoothcomp] Could not find '{full_label}' field")
-                print(f"[Smoothcomp] Available actions ({len(actions)} total):")
-                # Show fill actions specifically
-                fill_actions = [a for a in actions if getattr(a, 'type', '').lower() == 'fill']
-                print(f"[Smoothcomp] Fill actions: {len(fill_actions)}")
-                for i, act in enumerate(fill_actions[:5]):
-                    act_label = getattr(act, 'text_label', '') if hasattr(act, 'text_label') else ''
-                    act_desc = getattr(act, 'description', '')[:80] if hasattr(act, 'description') else ''
-                    print(f"[Smoothcomp]   fill {i}: label='{act_label}', desc='{act_desc}'")
-                return False
-
-            async def navigate_to_month_year(target_year: int, target_month: int) -> bool:
-                """Navigate calendar to target month/year using arrow buttons."""
-                print(f"[Smoothcomp] Navigating to {month_names[target_month-1]} {target_year}...")
-
-                max_nav_attempts = 24  # Max 2 years navigation
-                for _ in range(max_nav_attempts):
-                    await page.wait_for_timeout(500)
-
-                    # Observe current calendar state
-                    observation = page.raw_session.observe()
-                    actions = []
-                    if hasattr(observation, 'space') and hasattr(observation.space, 'actions'):
-                        actions = observation.space.actions
-                    elif hasattr(observation, 'actions'):
-                        actions = observation.actions
-
-                    # Try to find current month/year from calendar header
-                    # Look for text like "January 2026" in the actions
-                    current_month = None
-                    current_year = None
-
-                    for act in actions:
-                        act_label = getattr(act, 'text_label', '') if hasattr(act, 'text_label') else ''
-                        for i, month_name in enumerate(month_names):
-                            if month_name in act_label:
-                                # Try to extract year
-                                import re
-                                year_match = re.search(r'(\d{4})', act_label)
-                                if year_match:
-                                    current_month = i + 1
-                                    current_year = int(year_match.group(1))
-                                    print(f"[Smoothcomp] Calendar shows: {month_name} {current_year}")
-                                    break
-                        if current_month:
-                            break
-
-                    # If we found current calendar position, check if we're at target
-                    if current_month and current_year:
-                        if current_year == target_year and current_month == target_month:
-                            print(f"[Smoothcomp] Reached target month/year!")
-                            return True
-
-                        # Determine navigation direction
-                        current_total = current_year * 12 + current_month
-                        target_total = target_year * 12 + target_month
-
-                        if target_total > current_total:
-                            # Need to go forward
-                            nav_action = None
-                            for act in actions:
-                                act_label = getattr(act, 'text_label', '').lower() if hasattr(act, 'text_label') else ''
-                                act_desc = getattr(act, 'description', '').lower() if hasattr(act, 'description') else ''
-                                act_type = getattr(act, 'type', '').lower()
-                                if act_type == 'click' and ('next' in act_label or 'next' in act_desc or '>' in act_label or 'forward' in act_desc):
-                                    nav_action = act
-                                    break
-                            if nav_action:
-                                print(f"[Smoothcomp] Clicking next month...")
-                                page.raw_session.execute(nav_action)
-                            else:
-                                # Try keyboard navigation
-                                await page.keyboard.press("ArrowRight")
-                        else:
-                            # Need to go backward
-                            nav_action = None
-                            for act in actions:
-                                act_label = getattr(act, 'text_label', '').lower() if hasattr(act, 'text_label') else ''
-                                act_desc = getattr(act, 'description', '').lower() if hasattr(act, 'description') else ''
-                                act_type = getattr(act, 'type', '').lower()
-                                if act_type == 'click' and ('prev' in act_label or 'prev' in act_desc or '<' in act_label or 'back' in act_desc):
-                                    nav_action = act
-                                    break
-                            if nav_action:
-                                print(f"[Smoothcomp] Clicking previous month...")
-                                page.raw_session.execute(nav_action)
-                            else:
-                                await page.keyboard.press("ArrowLeft")
-                    else:
-                        # Can't determine current position, assume we need to look for navigation
-                        # Just try clicking next once to trigger a change
-                        print(f"[Smoothcomp] Cannot determine current calendar position, trying to navigate...")
-                        for act in actions:
-                            act_type = getattr(act, 'type', '').lower()
-                            act_label = getattr(act, 'text_label', '').lower() if hasattr(act, 'text_label') else ''
-                            if act_type == 'click' and ('next' in act_label or '>' in act_label):
-                                page.raw_session.execute(act)
-                                break
-
-                print(f"[Smoothcomp] Could not navigate to target month/year after max attempts")
-                return False
-
-            async def click_day(day: int) -> bool:
-                """Click on a specific day number in the calendar."""
-                print(f"[Smoothcomp] Looking for day {day} to click...")
-                await page.wait_for_timeout(500)
-
-                observation = page.raw_session.observe()
-                actions = []
-                if hasattr(observation, 'space') and hasattr(observation.space, 'actions'):
-                    actions = observation.space.actions
-                elif hasattr(observation, 'actions'):
-                    actions = observation.actions
-
-                # Look for clickable element with exact day number
-                day_str = str(day)
-                for act in actions:
-                    act_label = getattr(act, 'text_label', '') if hasattr(act, 'text_label') else ''
-                    act_type = getattr(act, 'type', '').lower()
-
-                    # Match exact day number (not partial match like "1" in "11")
-                    if act_type == 'click' and act_label.strip() == day_str:
-                        print(f"[Smoothcomp] Found day {day}: {act}")
-                        page.raw_session.execute(act)
-                        return True
-
-                print(f"[Smoothcomp] Could not find day {day} in calendar")
-                return False
-
-            async def select_date(date_str: str, field_name: str) -> bool:
-                """Select a date by clicking field and typing the date directly."""
-                if not date_str:
-                    return True
-
-                print(f"[Smoothcomp] Selecting {field_name} date: {date_str}")
-
-                # Step 1: Click date field
-                if not await click_date_field(field_name):
-                    print(f"[Smoothcomp] Could not click {field_name} field")
-                    return False
-
-                await page.wait_for_timeout(500)
-
-                # Step 2: Clear existing content and type the date
-                keyboard = page.keyboard
-                # Select all and delete
-                await keyboard.press("Control+a")
-                await page.wait_for_timeout(200)
-                await keyboard.press("Backspace")
-                await page.wait_for_timeout(200)
-
-                # Type the date in YYYY-MM-DD format
-                await keyboard.type(date_str)
-                await page.wait_for_timeout(500)
-
-                # Press Tab or Enter to confirm
-                await keyboard.press("Tab")
-                await page.wait_for_timeout(500)
-
-                print(f"[Smoothcomp] Successfully entered {field_name} date: {date_str}")
-                return True
-
-            # Apply start date
+            # Apply start date using agent
             if date_from:
-                await select_date(date_from, "start")
-                await page.wait_for_timeout(1000)
+                start_date_readable = format_date_for_agent(date_from)
+                print(f"[Smoothcomp] Setting start date: {start_date_readable}")
 
-            # Apply end date
+                # Create agent task for start date selection
+                start_task = f"""
+                On this events page, I need to set the Start date filter to {start_date_readable}.
+
+                Steps:
+                1. Find and click on the "Start date" input field or date picker
+                2. If a calendar popup appears, navigate to {month_names[int(date_from.split('-')[1])-1]} {date_from.split('-')[0]}
+                3. Click on day {int(date_from.split('-')[2])} in the calendar
+                4. Make sure the date is selected and the calendar closes
+
+                Do not click on any event links. Focus only on the date filter.
+                """
+
+                try:
+                    agent = browser_manager.get_agent(raw_session, start_task, max_steps=15)
+                    result = agent.run(start_task)
+                    print(f"[Smoothcomp] Start date agent result: {result}")
+                except Exception as e:
+                    print(f"[Smoothcomp] Start date agent failed: {e}")
+                    # Try fallback
+                    await self._try_date_fallback(page, date_from, 'start')
+
+                await page.wait_for_timeout(2000)
+
+            # Apply end date using agent
             if date_to:
-                await select_date(date_to, "end")
-                await page.wait_for_timeout(1000)
+                end_date_readable = format_date_for_agent(date_to)
+                print(f"[Smoothcomp] Setting end date: {end_date_readable}")
+
+                # Create agent task for end date selection
+                end_task = f"""
+                On this events page, I need to set the End date filter to {end_date_readable}.
+
+                Steps:
+                1. Find and click on the "End date" input field or date picker
+                2. If a calendar popup appears, navigate to {month_names[int(date_to.split('-')[1])-1]} {date_to.split('-')[0]}
+                3. Click on day {int(date_to.split('-')[2])} in the calendar
+                4. Make sure the date is selected and the calendar closes
+
+                Do not click on any event links. Focus only on the date filter.
+                """
+
+                try:
+                    agent = browser_manager.get_agent(raw_session, end_task, max_steps=15)
+                    result = agent.run(end_task)
+                    print(f"[Smoothcomp] End date agent result: {result}")
+                except Exception as e:
+                    print(f"[Smoothcomp] End date agent failed: {e}")
+                    # Try fallback
+                    await self._try_date_fallback(page, date_to, 'end')
+
+                await page.wait_for_timeout(2000)
 
             print(f"[Smoothcomp] Date filter applied successfully")
             return True
@@ -600,6 +410,57 @@ class SmoothcompAgent(BaseTournamentAgent):
             print(f"[Smoothcomp] Date filter error: {e}")
             import traceback
             traceback.print_exc()
+            return False
+
+    async def _try_date_fallback(self, page: NotteSession, date_value: str, field_type: str) -> bool:
+        """Fallback method to set date using step() with natural language."""
+        try:
+            print(f"[Smoothcomp] Trying date fallback for {field_type}: {date_value}")
+
+            raw_session = page.raw_session
+            field_label = "Start date" if field_type == 'start' else "End date"
+
+            # Parse the date
+            parts = date_value.split('-')
+            year, month, day = int(parts[0]), int(parts[1]), int(parts[2])
+            month_names = ['January', 'February', 'March', 'April', 'May', 'June',
+                          'July', 'August', 'September', 'October', 'November', 'December']
+            date_readable = f"{month_names[month-1]} {day}, {year}"
+
+            # Try using step() for natural language interaction
+            try:
+                if hasattr(raw_session, 'step'):
+                    raw_session.step(f"Click on the {field_label} filter field")
+                    await page.wait_for_timeout(1000)
+                    raw_session.step(f"Navigate the calendar to {month_names[month-1]} {year}")
+                    await page.wait_for_timeout(500)
+                    raw_session.step(f"Click on day {day}")
+                    await page.wait_for_timeout(500)
+                    print(f"[Smoothcomp] Fallback step() completed for {field_type}")
+                    return True
+            except Exception as e:
+                print(f"[Smoothcomp] step() fallback failed: {e}")
+
+            # Last resort: try keyboard entry
+            try:
+                await page.action(f"click on the {field_label} input field")
+                await page.wait_for_timeout(500)
+                keyboard = page.keyboard
+                await keyboard.press("Control+a")
+                await page.wait_for_timeout(100)
+                await keyboard.type(date_value)
+                await page.wait_for_timeout(300)
+                await keyboard.press("Escape")
+                await page.wait_for_timeout(300)
+                print(f"[Smoothcomp] Keyboard fallback completed for {field_type}")
+                return True
+            except Exception as e:
+                print(f"[Smoothcomp] Keyboard fallback failed: {e}")
+
+            return False
+
+        except Exception as e:
+            print(f"[Smoothcomp] Date fallback failed: {e}")
             return False
 
     async def _scrape_events_page(
@@ -636,15 +497,11 @@ class SmoothcompAgent(BaseTournamentAgent):
             # Handle cookie popup first
             await self._handle_cookie_popup(page)
 
-            # NOTE: Date filter is SKIPPED on Smoothcomp UI
-            # Notte free plan cannot reliably interact with Smoothcomp's calendar picker:
-            # - observe() doesn't detect calendar input fields
-            # - Natural language "click on End date" matches wrong elements (event names containing "end")
-            # - Calendar navigation fails because it can't determine current month/year position
-            # - Sessions expire during the lengthy navigation attempts
-            # Instead, date filtering is applied post-scrape in TournamentService._apply_filters()
+            # Apply date filter first (if provided)
             if date_from or date_to:
-                print(f"[Smoothcomp] Date filter ({date_from} to {date_to}) will be applied post-scrape in Python")
+                print(f"[Smoothcomp] Applying date filter: {date_from} to {date_to}")
+                await self._apply_date_filter(page, date_from, date_to)
+                await page.wait_for_timeout(2000)  # Wait for results to update
 
             # Apply country filter using natural language actions
             if location:
