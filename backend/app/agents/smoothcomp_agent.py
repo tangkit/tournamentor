@@ -265,58 +265,68 @@ class SmoothcompAgent(BaseTournamentAgent):
             print(f"[Smoothcomp] === APPLYING DATE FILTER ===")
             print(f"[Smoothcomp] Date range: {date_from} to {date_to}")
 
-            await page.wait_for_timeout(1000)
+            # Wait for any popups to close and page to settle
+            await page.wait_for_timeout(2000)
+
+            # Scroll up to ensure filter inputs are visible
+            await page.evaluate('window.scrollTo(0, 0)')
+            await page.wait_for_timeout(500)
+
             keyboard = page.keyboard
 
-            # Helper to find and click a date field
-            async def find_and_click_date_field(field_name: str) -> bool:
-                observation = page.raw_session.observe()
-                actions = []
-                if hasattr(observation, 'space') and hasattr(observation.space, 'actions'):
-                    actions = observation.space.actions
-                elif hasattr(observation, 'actions'):
-                    actions = observation.actions
+            # Helper to find and click a date field with retry
+            async def find_and_click_date_field(field_name: str, max_retries: int = 2) -> bool:
+                for attempt in range(max_retries):
+                    try:
+                        observation = page.raw_session.observe()
+                        actions = []
+                        if hasattr(observation, 'space') and hasattr(observation.space, 'actions'):
+                            actions = observation.space.actions
+                        elif hasattr(observation, 'actions'):
+                            actions = observation.actions
 
-                for act in actions:
-                    act_str = str(act).lower()
-                    act_desc = getattr(act, 'description', '').lower() if hasattr(act, 'description') else ''
-                    combined = f"{act_str} {act_desc}"
+                        for act in actions:
+                            act_str = str(act).lower()
+                            act_desc = getattr(act, 'description', '').lower() if hasattr(act, 'description') else ''
+                            act_label = getattr(act, 'text_label', '').lower() if hasattr(act, 'text_label') else ''
+                            combined = f"{act_str} {act_desc} {act_label}"
 
-                    if field_name.lower() in combined and ('click' in combined or 'fill' in combined or 'date' in combined):
-                        print(f"[Smoothcomp] Found {field_name} action: {act}")
-                        page.raw_session.execute(act)
-                        return True
+                            if field_name.lower() in combined and ('fill' in combined or 'date' in combined or 'input' in combined):
+                                print(f"[Smoothcomp] Found {field_name} action: {act}")
+                                page.raw_session.execute(act)
+                                return True
+                    except Exception as e:
+                        print(f"[Smoothcomp] Attempt {attempt+1} failed for {field_name}: {e}")
+                        if attempt < max_retries - 1:
+                            await page.wait_for_timeout(2000)  # Wait before retry
+                        continue
                 return False
 
             # Apply start date
             if date_from:
                 print(f"[Smoothcomp] Setting start date: {date_from}")
                 if await find_and_click_date_field("start"):
-                    await page.wait_for_timeout(300)
+                    await page.wait_for_timeout(500)
+                    # Clear and type the date
+                    await keyboard.type(date_from)
+                    await page.wait_for_timeout(500)
+                    await keyboard.press("Tab")
+                    await page.wait_for_timeout(500)
                 else:
-                    await page.action("click on the Start date input field")
-                    await page.wait_for_timeout(300)
-
-                # Clear and type the date
-                await keyboard.type(date_from)
-                await page.wait_for_timeout(500)
-                await keyboard.press("Tab")
-                await page.wait_for_timeout(500)
+                    print(f"[Smoothcomp] Could not find Start date field, skipping")
 
             # Apply end date
             if date_to:
                 print(f"[Smoothcomp] Setting end date: {date_to}")
                 if await find_and_click_date_field("end"):
-                    await page.wait_for_timeout(300)
+                    await page.wait_for_timeout(500)
+                    # Clear and type the date
+                    await keyboard.type(date_to)
+                    await page.wait_for_timeout(500)
+                    await keyboard.press("Enter")
+                    await page.wait_for_timeout(1000)
                 else:
-                    await page.action("click on the End date input field")
-                    await page.wait_for_timeout(300)
-
-                # Clear and type the date
-                await keyboard.type(date_to)
-                await page.wait_for_timeout(500)
-                await keyboard.press("Enter")
-                await page.wait_for_timeout(1000)
+                    print(f"[Smoothcomp] Could not find End date field, skipping")
 
             print(f"[Smoothcomp] Date filter applied successfully")
             return True
