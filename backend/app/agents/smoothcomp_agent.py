@@ -346,7 +346,10 @@ class SmoothcompAgent(BaseTournamentAgent):
 
             async def click_date_field(field_name: str) -> bool:
                 """Click on date field to open calendar."""
-                print(f"[Smoothcomp] Looking for {field_name} date field...")
+                # Use full label like "Start date" or "End date"
+                full_label = f"{field_name} date".lower()
+                print(f"[Smoothcomp] Looking for '{full_label}' field...")
+
                 observation = page.raw_session.observe()
                 actions = []
                 if hasattr(observation, 'space') and hasattr(observation.space, 'actions'):
@@ -354,28 +357,64 @@ class SmoothcompAgent(BaseTournamentAgent):
                 elif hasattr(observation, 'actions'):
                     actions = observation.actions
 
+                # First pass: look for exact "Start date" or "End date" label
                 for act in actions:
-                    act_str = str(act).lower()
                     act_desc = getattr(act, 'description', '').lower() if hasattr(act, 'description') else ''
                     act_label = getattr(act, 'text_label', '').lower() if hasattr(act, 'text_label') else ''
                     act_type = getattr(act, 'type', '').lower()
-                    combined = f"{act_str} {act_desc} {act_label}"
 
-                    # Look for click action on date field
-                    if field_name.lower() in combined and ('date' in combined or 'calendar' in combined):
-                        print(f"[Smoothcomp] Found {field_name} date field: {act}")
+                    # Skip link elements (they have href in description)
+                    if 'href=' in act_desc:
+                        continue
+
+                    # Look for exact match of "start date" or "end date"
+                    if full_label in act_label or full_label in act_desc:
+                        print(f"[Smoothcomp] Found '{full_label}' field: {act}")
                         page.raw_session.execute(act)
                         return True
 
-                # Fallback: look for any clickable element with the field name
+                # Second pass: look for fill/input type actions related to date
                 for act in actions:
+                    act_desc = getattr(act, 'description', '').lower() if hasattr(act, 'description') else ''
                     act_label = getattr(act, 'text_label', '').lower() if hasattr(act, 'text_label') else ''
                     act_type = getattr(act, 'type', '').lower()
-                    if act_type == 'click' and field_name.lower() in act_label:
-                        print(f"[Smoothcomp] Found {field_name} (fallback): {act}")
+
+                    # Skip link elements
+                    if 'href=' in act_desc:
+                        continue
+
+                    # Look for fill/input actions with date-related labels
+                    if act_type == 'fill' and 'date' in act_label:
+                        print(f"[Smoothcomp] Found date input (fill): {act}")
                         page.raw_session.execute(act)
                         return True
 
+                # Third pass: look for input[type="date"] or datepicker elements
+                for act in actions:
+                    act_desc = getattr(act, 'description', '').lower() if hasattr(act, 'description') else ''
+                    act_type = getattr(act, 'type', '').lower()
+                    selector = getattr(act, 'selector', None)
+
+                    # Skip link elements
+                    if 'href=' in act_desc:
+                        continue
+
+                    # Check selector for date-related classes
+                    if selector:
+                        css = getattr(selector, 'css_selector', '').lower() if hasattr(selector, 'css_selector') else ''
+                        if 'date' in css or 'picker' in css or 'calendar' in css:
+                            print(f"[Smoothcomp] Found date element by selector: {act}")
+                            page.raw_session.execute(act)
+                            return True
+
+                # Debug: print available actions to see what's on the page
+                print(f"[Smoothcomp] Could not find '{full_label}' field")
+                print(f"[Smoothcomp] Available actions ({len(actions)} total):")
+                for i, act in enumerate(actions[:10]):  # Show first 10
+                    act_label = getattr(act, 'text_label', '') if hasattr(act, 'text_label') else ''
+                    act_type = getattr(act, 'type', '') if hasattr(act, 'type') else ''
+                    act_desc = getattr(act, 'description', '')[:50] if hasattr(act, 'description') else ''
+                    print(f"[Smoothcomp]   {i}: type={act_type}, label='{act_label}', desc='{act_desc}...'")
                 return False
 
             async def navigate_to_month_year(target_year: int, target_month: int) -> bool:
