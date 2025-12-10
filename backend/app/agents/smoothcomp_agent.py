@@ -636,11 +636,15 @@ class SmoothcompAgent(BaseTournamentAgent):
             # Handle cookie popup first
             await self._handle_cookie_popup(page)
 
-            # Apply date filter first (if provided)
+            # NOTE: Date filter is SKIPPED on Smoothcomp UI
+            # Notte free plan cannot reliably interact with Smoothcomp's calendar picker:
+            # - observe() doesn't detect calendar input fields
+            # - Natural language "click on End date" matches wrong elements (event names containing "end")
+            # - Calendar navigation fails because it can't determine current month/year position
+            # - Sessions expire during the lengthy navigation attempts
+            # Instead, date filtering is applied post-scrape in TournamentService._apply_filters()
             if date_from or date_to:
-                print(f"[Smoothcomp] Applying date filter: {date_from} to {date_to}")
-                await self._apply_date_filter(page, date_from, date_to)
-                await page.wait_for_timeout(2000)  # Wait for results to update
+                print(f"[Smoothcomp] Date filter ({date_from} to {date_to}) will be applied post-scrape in Python")
 
             # Apply country filter using natural language actions
             if location:
