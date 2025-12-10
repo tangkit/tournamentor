@@ -161,41 +161,74 @@ class SmoothcompAgent(BaseTournamentAgent):
             traceback.print_exc()
 
     async def _apply_country_filter(self, page: NotteSession, location: str) -> bool:
-        """Apply country filter on Smoothcomp events page using Notte natural language actions.
+        """Apply country filter on Smoothcomp events page.
+
+        Uses keyboard-based approach for more reliable multi-country input:
+        1. Click on the Countries input field
+        2. Type country name using keyboard
+        3. Wait for dropdown and press Enter to select
+        4. Re-click input field for next country
 
         Supports multiple countries passed as comma-separated string (e.g., "Malaysia,Taiwan")
         """
         try:
-            # Parse comma-separated countries
             countries = [c.strip() for c in location.split(',') if c.strip()]
             print(f"[Smoothcomp] === APPLYING COUNTRY FILTER ===")
             print(f"[Smoothcomp] Countries to filter: {countries}")
-            print(f"[Smoothcomp] Total countries: {len(countries)}")
 
             # Wait for page to be fully loaded
-            print("[Smoothcomp] Waiting 2 seconds for filters to load...")
             await page.wait_for_timeout(2000)
 
-            # Use natural language to interact with the country filter
             for i, country in enumerate(countries):
-                print(f"\n[Smoothcomp] --- Processing country {i+1}/{len(countries)}: '{country}' ---")
+                print(f"\n[Smoothcomp] --- Adding country {i+1}/{len(countries)}: '{country}' ---")
                 try:
-                    # Click on the Countries input field
-                    print(f"[Smoothcomp] Step 1: Clicking Countries filter input...")
-                    await page.action("click on the Countries filter input field")
-                    print(f"[Smoothcomp] Step 1: Done, waiting 1 second...")
-                    await page.wait_for_timeout(1000)
+                    # Step 1: Click on the Countries input field using observe/execute
+                    print(f"[Smoothcomp] Step 1: Looking for Countries input field...")
+                    observation = page.raw_session.observe()
 
-                    # Type the country name
-                    print(f"[Smoothcomp] Step 2: Typing '{country}'...")
-                    await page.action(f"type '{country}' in the Countries input field")
-                    print(f"[Smoothcomp] Step 2: Done, waiting 1.5 seconds for dropdown...")
-                    await page.wait_for_timeout(1500)
+                    # Find available actions
+                    actions = []
+                    if hasattr(observation, 'space') and hasattr(observation.space, 'actions'):
+                        actions = observation.space.actions
+                    elif hasattr(observation, 'actions'):
+                        actions = observation.actions
 
-                    # Select the country from dropdown
-                    print(f"[Smoothcomp] Step 3: Selecting '{country}' from dropdown...")
-                    await page.action(f"click on '{country}' in the dropdown list")
-                    print(f"[Smoothcomp] Step 3: Done, waiting 1 second...")
+                    print(f"[Smoothcomp] Found {len(actions)} available actions")
+
+                    # Look for click/fill action on Countries input
+                    countries_input_action = None
+                    for act in actions:
+                        act_str = str(act).lower()
+                        act_desc = getattr(act, 'description', '').lower() if hasattr(act, 'description') else ''
+                        combined = f"{act_str} {act_desc}"
+
+                        # Look for Countries filter action
+                        if 'countr' in combined and ('click' in combined or 'fill' in combined or 'input' in combined or 'select' in combined):
+                            countries_input_action = act
+                            print(f"[Smoothcomp] Found Countries action: {act}")
+                            break
+
+                    if countries_input_action:
+                        print(f"[Smoothcomp] Clicking Countries input...")
+                        page.raw_session.execute(countries_input_action)
+                        await page.wait_for_timeout(500)
+                    else:
+                        # Fallback: try clicking with natural language
+                        print(f"[Smoothcomp] Countries input not found in actions, trying fallback...")
+                        await page.action("click on the Countries filter dropdown")
+                        await page.wait_for_timeout(500)
+
+                    # Step 2: Type the country name using keyboard
+                    print(f"[Smoothcomp] Step 2: Typing '{country}' using keyboard...")
+                    keyboard = page.keyboard
+                    await keyboard.type(country)
+                    await page.wait_for_timeout(1500)  # Wait for dropdown to appear
+
+                    # Step 3: Press ArrowDown then Enter to select first match
+                    print(f"[Smoothcomp] Step 3: Selecting '{country}' with keyboard...")
+                    await keyboard.press("ArrowDown")
+                    await page.wait_for_timeout(300)
+                    await keyboard.press("Enter")
                     await page.wait_for_timeout(1000)
 
                     print(f"[Smoothcomp] Successfully added country: {country}")
@@ -216,7 +249,12 @@ class SmoothcompAgent(BaseTournamentAgent):
             return False
 
     async def _apply_date_filter(self, page: NotteSession, date_from: str, date_to: str) -> bool:
-        """Apply date filter on Smoothcomp events page using Notte natural language actions.
+        """Apply date filter on Smoothcomp events page.
+
+        Uses keyboard-based approach:
+        1. Find and click date input using observe/execute
+        2. Clear existing value and type new date using keyboard
+        3. Press Tab or Enter to confirm
 
         Args:
             page: Notte session page wrapper
@@ -227,29 +265,57 @@ class SmoothcompAgent(BaseTournamentAgent):
             print(f"[Smoothcomp] === APPLYING DATE FILTER ===")
             print(f"[Smoothcomp] Date range: {date_from} to {date_to}")
 
-            # Wait for page to be fully loaded
             await page.wait_for_timeout(1000)
+            keyboard = page.keyboard
 
-            # Click on start date field and enter date
+            # Helper to find and click a date field
+            async def find_and_click_date_field(field_name: str) -> bool:
+                observation = page.raw_session.observe()
+                actions = []
+                if hasattr(observation, 'space') and hasattr(observation.space, 'actions'):
+                    actions = observation.space.actions
+                elif hasattr(observation, 'actions'):
+                    actions = observation.actions
+
+                for act in actions:
+                    act_str = str(act).lower()
+                    act_desc = getattr(act, 'description', '').lower() if hasattr(act, 'description') else ''
+                    combined = f"{act_str} {act_desc}"
+
+                    if field_name.lower() in combined and ('click' in combined or 'fill' in combined or 'date' in combined):
+                        print(f"[Smoothcomp] Found {field_name} action: {act}")
+                        page.raw_session.execute(act)
+                        return True
+                return False
+
+            # Apply start date
             if date_from:
                 print(f"[Smoothcomp] Setting start date: {date_from}")
-                await page.action("click on the 'Start date' input field")
+                if await find_and_click_date_field("start"):
+                    await page.wait_for_timeout(300)
+                else:
+                    await page.action("click on the Start date input field")
+                    await page.wait_for_timeout(300)
+
+                # Clear and type the date
+                await keyboard.type(date_from)
                 await page.wait_for_timeout(500)
-                await page.action(f"type '{date_from}' in the Start date field")
-                await page.wait_for_timeout(500)
-                # Press Enter or click elsewhere to confirm
-                await page.action("press Enter key")
+                await keyboard.press("Tab")
                 await page.wait_for_timeout(500)
 
-            # Click on end date field and enter date
+            # Apply end date
             if date_to:
                 print(f"[Smoothcomp] Setting end date: {date_to}")
-                await page.action("click on the 'End date' input field")
+                if await find_and_click_date_field("end"):
+                    await page.wait_for_timeout(300)
+                else:
+                    await page.action("click on the End date input field")
+                    await page.wait_for_timeout(300)
+
+                # Clear and type the date
+                await keyboard.type(date_to)
                 await page.wait_for_timeout(500)
-                await page.action(f"type '{date_to}' in the End date field")
-                await page.wait_for_timeout(500)
-                # Press Enter or click elsewhere to confirm
-                await page.action("press Enter key")
+                await keyboard.press("Enter")
                 await page.wait_for_timeout(1000)
 
             print(f"[Smoothcomp] Date filter applied successfully")
