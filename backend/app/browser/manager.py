@@ -419,6 +419,11 @@ class BrowserManager:
             session.__enter__()
             print(f"[BrowserManager] Session started successfully (ID: {getattr(session, 'session_id', 'unknown')})")
 
+            # Wait for session to stabilize (Notte free plan rate limits)
+            import time
+            print(f"[BrowserManager] Waiting 5s for session to stabilize (free plan rate limit)...")
+            time.sleep(5)
+
             # Debug: Show available methods on the session object
             session_methods = [m for m in dir(session) if not m.startswith('_')]
             print(f"[BrowserManager] Session type: {type(session).__name__}")

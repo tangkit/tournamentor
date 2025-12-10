@@ -149,8 +149,8 @@ class SmoothcompAgent(BaseTournamentAgent):
         """Handle the cookie consent popup if present."""
         try:
             print("[Smoothcomp] === HANDLING COOKIE POPUP ===")
-            print("[Smoothcomp] Waiting 2 seconds for page to settle...")
-            await page.wait_for_timeout(2000)
+            print("[Smoothcomp] Waiting 5 seconds for page to settle (free plan rate limit)...")
+            await page.wait_for_timeout(5000)
 
             # Use observe to find the Accept button directly
             for attempt in range(3):
@@ -179,11 +179,11 @@ class SmoothcompAgent(BaseTournamentAgent):
                     try:
                         page.raw_session.execute(accept_action)
                         print("[Smoothcomp] Cookie Accept button clicked!")
-                        await page.wait_for_timeout(1500)
+                        await page.wait_for_timeout(3000)  # Longer wait for free plan
                         return
                     except Exception as e:
                         print(f"[Smoothcomp] Click failed: {e}, retrying...")
-                        await page.wait_for_timeout(1000)
+                        await page.wait_for_timeout(3000)  # Longer wait for free plan
                 else:
                     print("[Smoothcomp] Accept button not found in this attempt")
                     await page.wait_for_timeout(1000)
@@ -211,8 +211,8 @@ class SmoothcompAgent(BaseTournamentAgent):
             print(f"[Smoothcomp] === APPLYING COUNTRY FILTER ===")
             print(f"[Smoothcomp] Countries to filter: {countries}")
 
-            # Wait for page to be fully loaded
-            await page.wait_for_timeout(2000)
+            # Wait for page to be fully loaded (longer for free plan rate limits)
+            await page.wait_for_timeout(5000)
 
             for i, country in enumerate(countries):
                 print(f"\n[Smoothcomp] --- Adding country {i+1}/{len(countries)}: '{country}' ---")
@@ -327,8 +327,8 @@ class SmoothcompAgent(BaseTournamentAgent):
             print(f"[Smoothcomp] === APPLYING DATE FILTER (Calendar Picker) ===")
             print(f"[Smoothcomp] Date range: {date_from} to {date_to}")
 
-            # Wait for page to settle
-            await page.wait_for_timeout(2000)
+            # Wait for page to settle (longer for free plan rate limits)
+            await page.wait_for_timeout(5000)
 
             # Scroll up to ensure filter inputs are visible
             await page.evaluate('window.scrollTo(0, 0)')
