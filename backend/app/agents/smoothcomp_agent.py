@@ -551,30 +551,36 @@ class SmoothcompAgent(BaseTournamentAgent):
                 return False
 
             async def select_date(date_str: str, field_name: str) -> bool:
-                """Full flow to select a date using calendar picker."""
+                """Select a date by clicking field and typing the date directly."""
                 if not date_str:
                     return True
 
-                year, month, day = parse_date(date_str)
-                print(f"[Smoothcomp] Selecting {field_name} date: {month_names[month-1]} {day}, {year}")
+                print(f"[Smoothcomp] Selecting {field_name} date: {date_str}")
 
-                # Step 1: Click date field to open calendar
+                # Step 1: Click date field
                 if not await click_date_field(field_name):
-                    print(f"[Smoothcomp] Could not open {field_name} calendar")
-                    return False
-
-                await page.wait_for_timeout(1000)  # Wait for calendar to open
-
-                # Step 2: Navigate to correct month/year
-                await navigate_to_month_year(year, month)
-
-                # Step 3: Click on the day
-                if not await click_day(day):
-                    print(f"[Smoothcomp] Could not click day {day}")
+                    print(f"[Smoothcomp] Could not click {field_name} field")
                     return False
 
                 await page.wait_for_timeout(500)
-                print(f"[Smoothcomp] Successfully selected {field_name} date!")
+
+                # Step 2: Clear existing content and type the date
+                keyboard = page.keyboard
+                # Select all and delete
+                await keyboard.press("Control+a")
+                await page.wait_for_timeout(200)
+                await keyboard.press("Backspace")
+                await page.wait_for_timeout(200)
+
+                # Type the date in YYYY-MM-DD format
+                await keyboard.type(date_str)
+                await page.wait_for_timeout(500)
+
+                # Press Tab or Enter to confirm
+                await keyboard.press("Tab")
+                await page.wait_for_timeout(500)
+
+                print(f"[Smoothcomp] Successfully entered {field_name} date: {date_str}")
                 return True
 
             # Apply start date
