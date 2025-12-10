@@ -152,12 +152,12 @@ class NotteElement:
         self._selector = selector
 
     async def click(self) -> None:
-        """Click the element."""
-        self._session.act(f"click on {self._selector}")
+        """Click the element using execute action."""
+        self._session.execute({"type": "action", "instruction": f"click on {self._selector}"})
 
     async def fill(self, value: str) -> None:
-        """Fill the element with text."""
-        self._session.act(f"type '{value}' into {self._selector}")
+        """Fill the element with text using execute action."""
+        self._session.execute({"type": "action", "instruction": f"type '{value}' into {self._selector}"})
 
     async def inner_text(self) -> str:
         """Get inner text - use scrape."""
@@ -252,10 +252,12 @@ class BrowserManager:
             await self._initialize()
 
         # Create Notte session
-        # Note: open_viewer causes debug endpoint errors, disabled for now
-        print(f"[BrowserManager] Creating session (headless=True)...")
+        # Enable open_viewer for debugging (controlled by HEADLESS env var)
+        open_viewer = not self.headless
+        print(f"[BrowserManager] Creating session (headless=True, open_viewer={open_viewer})...")
         session = self._client.Session(
             headless=True,  # Notte cloud only supports headless mode
+            open_viewer=open_viewer,  # Opens browser viewer for debugging
             timeout_minutes=15,
             browser_type='chrome-nightly',  # Required for solve_captchas
             proxies=True,  # Required when using chrome-nightly with solve_captchas
