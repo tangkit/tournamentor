@@ -36,42 +36,58 @@ class NotteSession:
             raise
 
     async def action(self, instruction: str) -> Any:
-        """Execute a natural language action on the page using Notte step() method."""
+        """Execute a natural language action on the page using Notte observe/execute."""
         print(f"[Notte] action: Executing '{instruction}'")
         try:
-            # Use the step() method for natural language actions
-            # step() combines observe + execute for natural language instructions
-            if hasattr(self._session, 'step'):
-                result = self._session.step(instruction)
-                print(f"[Notte] action: step() completed successfully")
-                if result:
-                    print(f"[Notte] action: Result type={type(result).__name__}")
-                return result
+            # Observe available actions on the page
+            observation = self._session.observe()
+            print(f"[Notte] action: observe() returned {type(observation).__name__}")
+
+            # Debug: show observation structure
+            if hasattr(observation, '__dict__'):
+                print(f"[Notte] action: observation attrs: {list(observation.__dict__.keys())}")
+
+            # Get available actions
+            actions = None
+            if hasattr(observation, 'space') and hasattr(observation.space, 'actions'):
+                actions = observation.space.actions
+                print(f"[Notte] action: Found {len(actions)} actions in observation.space.actions")
+            elif hasattr(observation, 'actions'):
+                actions = observation.actions
+                print(f"[Notte] action: Found {len(actions)} actions in observation.actions")
+
+            if actions:
+                # Show first few actions for debugging
+                print(f"[Notte] action: Sample actions:")
+                for i, act in enumerate(actions[:5]):
+                    print(f"[Notte]   {i}: {act}")
+                    if hasattr(act, '__dict__'):
+                        print(f"[Notte]      attrs: {act.__dict__}")
+
+                # Try to find matching action
+                instruction_lower = instruction.lower()
+                keywords = [w for w in instruction_lower.split() if len(w) > 2]
+
+                for act in actions:
+                    # Check action description/text
+                    act_str = str(act).lower()
+                    act_desc = getattr(act, 'description', '').lower() if hasattr(act, 'description') else ''
+                    act_text = getattr(act, 'text', '').lower() if hasattr(act, 'text') else ''
+
+                    combined = f"{act_str} {act_desc} {act_text}"
+
+                    # Match on keywords
+                    if any(kw in combined for kw in keywords):
+                        print(f"[Notte] action: Found matching action: {act}")
+                        result = self._session.execute(act)
+                        print(f"[Notte] action: execute() completed")
+                        return result
+
+                print(f"[Notte] action: No match found for keywords: {keywords}")
             else:
-                # Fallback: Use observe to find action, then execute
-                print(f"[Notte] action: step() not available, using observe/execute pattern")
-                observation = self._session.observe()
-                print(f"[Notte] action: observe() returned {type(observation).__name__}")
+                print(f"[Notte] action: No actions available in observation")
 
-                # Find matching action from available actions
-                if hasattr(observation, 'actions') and observation.actions:
-                    print(f"[Notte] action: Found {len(observation.actions)} available actions")
-                    # Look for an action that matches the instruction
-                    instruction_lower = instruction.lower()
-                    for action in observation.actions:
-                        action_desc = str(action).lower()
-                        # Simple keyword matching
-                        if any(word in action_desc for word in instruction_lower.split()[:3]):
-                            print(f"[Notte] action: Found matching action: {action}")
-                            result = self._session.execute(action)
-                            print(f"[Notte] action: execute() completed")
-                            return result
-
-                    # If no match found, try the first few actions for debugging
-                    print(f"[Notte] action: No exact match, available actions: {observation.actions[:5]}")
-
-                print(f"[Notte] action: Could not find matching action for '{instruction}'")
-                return None
+            return None
         except Exception as e:
             print(f"[Notte] action: FAILED - {e}")
             import traceback
@@ -187,38 +203,83 @@ class NotteElement:
         self._session = session
         self._selector = selector
 
+    def _get_actions(self):
+        """Get available actions from observe()."""
+        observation = self._session.observe()
+        if hasattr(observation, 'space') and hasattr(observation.space, 'actions'):
+            return observation.space.actions
+        elif hasattr(observation, 'actions'):
+            return observation.actions
+        return []
+
     async def click(self) -> None:
-        """Click the element using step() for natural language."""
-        instruction = f"click on {self._selector}"
-        print(f"[NotteElement] click: {instruction}")
-        if hasattr(self._session, 'step'):
-            self._session.step(instruction)
-        else:
-            # Fallback to observe/execute
-            observation = self._session.observe()
-            if hasattr(observation, 'actions'):
-                for action in observation.actions:
-                    if 'click' in str(action).lower() and self._selector.lower() in str(action).lower():
-                        self._session.execute(action)
-                        return
-            print(f"[NotteElement] click: Could not find matching action")
+        """Click the element using observe/execute pattern."""
+        print(f"[NotteElement] click: Looking for '{self._selector}'")
+        actions = self._get_actions()
+        print(f"[NotteElement] click: Found {len(actions)} available actions")
+
+        selector_lower = self._selector.lower()
+        keywords = [w for w in selector_lower.split() if len(w) > 2]
+
+        for act in actions:
+            act_type = getattr(act, 'type', '').lower()
+            act_str = str(act).lower()
+            act_desc = getattr(act, 'description', '').lower() if hasattr(act, 'description') else ''
+
+            # Look for click actions that match our selector
+            if 'click' in act_type or 'click' in act_str:
+                if any(kw in f"{act_str} {act_desc}" for kw in keywords):
+                    print(f"[NotteElement] click: Executing {act}")
+                    self._session.execute(act)
+                    return
+
+        # If no specific match, try first click action on input-like elements
+        for act in actions:
+            act_type = getattr(act, 'type', '').lower()
+            act_str = str(act).lower()
+            if 'click' in act_type and ('input' in act_str or 'text' in act_str or 'search' in act_str):
+                print(f"[NotteElement] click: Using fallback input click: {act}")
+                self._session.execute(act)
+                return
+
+        print(f"[NotteElement] click: No matching action found for '{self._selector}'")
 
     async def fill(self, value: str) -> None:
-        """Fill the element with text using step() for natural language."""
-        instruction = f"type '{value}' into {self._selector}"
-        print(f"[NotteElement] fill: {instruction}")
-        if hasattr(self._session, 'step'):
-            self._session.step(instruction)
-        else:
-            # Fallback to observe/execute
-            observation = self._session.observe()
-            if hasattr(observation, 'actions'):
-                for action in observation.actions:
-                    if 'fill' in str(action).lower() or 'type' in str(action).lower():
-                        if self._selector.lower() in str(action).lower():
-                            self._session.execute(action)
-                            return
-            print(f"[NotteElement] fill: Could not find matching action")
+        """Fill the element with text using observe/execute pattern."""
+        print(f"[NotteElement] fill: Looking for '{self._selector}' to fill with '{value}'")
+        actions = self._get_actions()
+        print(f"[NotteElement] fill: Found {len(actions)} available actions")
+
+        selector_lower = self._selector.lower()
+        keywords = [w for w in selector_lower.split() if len(w) > 2]
+
+        for act in actions:
+            act_type = getattr(act, 'type', '').lower()
+            act_str = str(act).lower()
+            act_desc = getattr(act, 'description', '').lower() if hasattr(act, 'description') else ''
+
+            # Look for fill/type actions that match our selector
+            if 'fill' in act_type or 'type' in act_type:
+                if any(kw in f"{act_str} {act_desc}" for kw in keywords):
+                    # Modify action to include the value
+                    if hasattr(act, 'value'):
+                        act.value = value
+                    print(f"[NotteElement] fill: Executing {act}")
+                    self._session.execute(act)
+                    return
+
+        # If no specific match, look for any fill action on input elements
+        for act in actions:
+            act_type = getattr(act, 'type', '').lower()
+            act_str = str(act).lower()
+            if 'fill' in act_type and ('input' in act_str or 'text' in act_str or 'search' in act_str):
+                if hasattr(act, 'value'):
+                    act.value = value
+                print(f"[NotteElement] fill: Using fallback input fill: {act}")
+                self._session.execute(act)
+                return
+
+        print(f"[NotteElement] fill: No matching action found for '{self._selector}'")
 
     async def inner_text(self) -> str:
         """Get inner text - use scrape."""

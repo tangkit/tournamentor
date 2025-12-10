@@ -19,9 +19,24 @@ class ASJJFAgent(BaseTournamentAgent):
     def base_url(self) -> str:
         return "https://asjjf.org"
 
+    # Season IDs for ASJJF - maps year to season ID
+    SEASON_IDS = {
+        2024: 229,
+        2025: 286,
+        2026: 341,
+    }
+
     @property
     def events_url(self) -> str:
-        return "https://asjjf.org/main/eventsBySeason/286"
+        """Default to current year's season."""
+        current_year = datetime.now().year
+        season_id = self.SEASON_IDS.get(current_year, 286)
+        return f"https://asjjf.org/main/eventsBySeason/{season_id}"
+
+    def _get_events_url_for_year(self, year: int) -> str:
+        """Get the events URL for a specific year."""
+        season_id = self.SEASON_IDS.get(year, self.SEASON_IDS.get(2025, 286))
+        return f"https://asjjf.org/main/eventsBySeason/{season_id}"
 
     @property
     def login_url(self) -> str:
@@ -161,8 +176,18 @@ class ASJJFAgent(BaseTournamentAgent):
             target_countries = [c.strip().lower() for c in location.split(',') if c.strip()]
 
         try:
-            print(f"[ASJJF] Navigating to {self.events_url}")
-            await page.goto(self.events_url, wait_until='domcontentloaded')
+            # Determine the correct season URL based on date_from
+            events_url = self.events_url
+            if date_from:
+                try:
+                    year = int(date_from.split('-')[0])
+                    events_url = self._get_events_url_for_year(year)
+                    print(f"[ASJJF] Using {year} season URL based on date_from")
+                except (ValueError, IndexError):
+                    pass
+
+            print(f"[ASJJF] Navigating to {events_url}")
+            await page.goto(events_url, wait_until='domcontentloaded')
             await page.wait_for_timeout(3000)
             print(f"[ASJJF] Page loaded, current URL: {page.url}")
 
