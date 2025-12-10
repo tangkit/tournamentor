@@ -36,16 +36,42 @@ class NotteSession:
             raise
 
     async def action(self, instruction: str) -> Any:
-        """Execute a natural language action on the page using observe/execute."""
+        """Execute a natural language action on the page using Notte step() method."""
         print(f"[Notte] action: Executing '{instruction}'")
         try:
-            # First observe to get available actions, then execute the instruction
-            # Or use execute directly with type 'action'
-            result = self._session.execute({"type": "action", "instruction": instruction})
-            print(f"[Notte] action: Completed successfully")
-            if result:
-                print(f"[Notte] action: Result type={type(result).__name__}")
-            return result
+            # Use the step() method for natural language actions
+            # step() combines observe + execute for natural language instructions
+            if hasattr(self._session, 'step'):
+                result = self._session.step(instruction)
+                print(f"[Notte] action: step() completed successfully")
+                if result:
+                    print(f"[Notte] action: Result type={type(result).__name__}")
+                return result
+            else:
+                # Fallback: Use observe to find action, then execute
+                print(f"[Notte] action: step() not available, using observe/execute pattern")
+                observation = self._session.observe()
+                print(f"[Notte] action: observe() returned {type(observation).__name__}")
+
+                # Find matching action from available actions
+                if hasattr(observation, 'actions') and observation.actions:
+                    print(f"[Notte] action: Found {len(observation.actions)} available actions")
+                    # Look for an action that matches the instruction
+                    instruction_lower = instruction.lower()
+                    for action in observation.actions:
+                        action_desc = str(action).lower()
+                        # Simple keyword matching
+                        if any(word in action_desc for word in instruction_lower.split()[:3]):
+                            print(f"[Notte] action: Found matching action: {action}")
+                            result = self._session.execute(action)
+                            print(f"[Notte] action: execute() completed")
+                            return result
+
+                    # If no match found, try the first few actions for debugging
+                    print(f"[Notte] action: No exact match, available actions: {observation.actions[:5]}")
+
+                print(f"[Notte] action: Could not find matching action for '{instruction}'")
+                return None
         except Exception as e:
             print(f"[Notte] action: FAILED - {e}")
             import traceback
@@ -128,11 +154,21 @@ class NotteSession:
 
     async def fill(self, selector: str, value: str) -> None:
         """Fill an input field using natural language."""
-        self._session.act(f"type '{value}' into the {selector} field")
+        instruction = f"type '{value}' into the {selector} field"
+        print(f"[Notte] fill: {instruction}")
+        if hasattr(self._session, 'step'):
+            self._session.step(instruction)
+        else:
+            await self.action(instruction)
 
     async def click(self, selector: str) -> None:
         """Click an element using natural language."""
-        self._session.act(f"click on {selector}")
+        instruction = f"click on {selector}"
+        print(f"[Notte] click: {instruction}")
+        if hasattr(self._session, 'step'):
+            self._session.step(instruction)
+        else:
+            await self.action(instruction)
 
     async def wait_for_selector(self, selector: str, state: str = 'visible', timeout: int = 10000) -> None:
         """Wait for element - Notte handles this automatically."""
@@ -152,12 +188,37 @@ class NotteElement:
         self._selector = selector
 
     async def click(self) -> None:
-        """Click the element using execute action."""
-        self._session.execute({"type": "action", "instruction": f"click on {self._selector}"})
+        """Click the element using step() for natural language."""
+        instruction = f"click on {self._selector}"
+        print(f"[NotteElement] click: {instruction}")
+        if hasattr(self._session, 'step'):
+            self._session.step(instruction)
+        else:
+            # Fallback to observe/execute
+            observation = self._session.observe()
+            if hasattr(observation, 'actions'):
+                for action in observation.actions:
+                    if 'click' in str(action).lower() and self._selector.lower() in str(action).lower():
+                        self._session.execute(action)
+                        return
+            print(f"[NotteElement] click: Could not find matching action")
 
     async def fill(self, value: str) -> None:
-        """Fill the element with text using execute action."""
-        self._session.execute({"type": "action", "instruction": f"type '{value}' into {self._selector}"})
+        """Fill the element with text using step() for natural language."""
+        instruction = f"type '{value}' into {self._selector}"
+        print(f"[NotteElement] fill: {instruction}")
+        if hasattr(self._session, 'step'):
+            self._session.step(instruction)
+        else:
+            # Fallback to observe/execute
+            observation = self._session.observe()
+            if hasattr(observation, 'actions'):
+                for action in observation.actions:
+                    if 'fill' in str(action).lower() or 'type' in str(action).lower():
+                        if self._selector.lower() in str(action).lower():
+                            self._session.execute(action)
+                            return
+            print(f"[NotteElement] fill: Could not find matching action")
 
     async def inner_text(self) -> str:
         """Get inner text - use scrape."""
@@ -185,11 +246,20 @@ class NotteKeyboard:
 
     async def type(self, text: str, delay: int = 0) -> None:
         """Type text."""
-        self._session.act(f"type '{text}'")
+        instruction = f"type '{text}'"
+        print(f"[NotteKeyboard] type: {instruction}")
+        if hasattr(self._session, 'step'):
+            self._session.step(instruction)
+        else:
+            # Use execute with press_key for each character as fallback
+            for char in text:
+                self._session.execute({"type": "press_key", "key": char})
 
     async def press(self, key: str) -> None:
         """Press a key."""
-        self._session.act(f"press the {key} key")
+        print(f"[NotteKeyboard] press: {key}")
+        # Use the press_key action type directly
+        self._session.execute({"type": "press_key", "key": key})
 
 
 class NotteContext:
