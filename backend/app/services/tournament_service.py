@@ -13,11 +13,13 @@ class TournamentService:
     """Service for aggregating tournaments from multiple sources."""
 
     def __init__(self):
+        # Run Smoothcomp first for testing filters
         self.agents = {
             TournamentSource.SMOOTHCOMP: SmoothcompAgent(),
-            TournamentSource.IBJJF: IBJJFAgent(),
-            TournamentSource.ASJJF: ASJJFAgent(),
-            TournamentSource.NAGA: NAGAAgent(),
+            # Temporarily disabled for testing - uncomment when ready:
+            # TournamentSource.IBJJF: IBJJFAgent(),
+            # TournamentSource.ASJJF: ASJJFAgent(),
+            # TournamentSource.NAGA: NAGAAgent(),
         }
 
     async def search_tournaments(
