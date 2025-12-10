@@ -21,7 +21,7 @@ class SmoothcompAgent(BaseTournamentAgent):
 
     @property
     def events_url(self) -> str:
-        return "https://smoothcomp.com/en/events"
+        return "https://smoothcomp.com/en/events/upcoming"
 
     @property
     def login_url(self) -> str:
