@@ -407,14 +407,25 @@ class SmoothcompAgent(BaseTournamentAgent):
                             page.raw_session.execute(act)
                             return True
 
+                # Fallback: Use natural language action to click date field
+                print(f"[Smoothcomp] Using natural language to click '{full_label}' field...")
+                try:
+                    await page.action(f"click on the {field_name} date input field")
+                    await page.wait_for_timeout(1000)
+                    return True
+                except Exception as e:
+                    print(f"[Smoothcomp] Natural language click failed: {e}")
+
                 # Debug: print available actions to see what's on the page
                 print(f"[Smoothcomp] Could not find '{full_label}' field")
                 print(f"[Smoothcomp] Available actions ({len(actions)} total):")
-                for i, act in enumerate(actions[:10]):  # Show first 10
+                # Show fill actions specifically
+                fill_actions = [a for a in actions if getattr(a, 'type', '').lower() == 'fill']
+                print(f"[Smoothcomp] Fill actions: {len(fill_actions)}")
+                for i, act in enumerate(fill_actions[:5]):
                     act_label = getattr(act, 'text_label', '') if hasattr(act, 'text_label') else ''
-                    act_type = getattr(act, 'type', '') if hasattr(act, 'type') else ''
-                    act_desc = getattr(act, 'description', '')[:50] if hasattr(act, 'description') else ''
-                    print(f"[Smoothcomp]   {i}: type={act_type}, label='{act_label}', desc='{act_desc}...'")
+                    act_desc = getattr(act, 'description', '')[:80] if hasattr(act, 'description') else ''
+                    print(f"[Smoothcomp]   fill {i}: label='{act_label}', desc='{act_desc}'")
                 return False
 
             async def navigate_to_month_year(target_year: int, target_month: int) -> bool:
